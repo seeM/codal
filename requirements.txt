@@ -1,0 +1,6 @@
+Django>=4.0
+langchain
+numpy
+openai
+tiktoken
+tqdm

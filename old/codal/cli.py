@@ -87,33 +87,23 @@ def cli(args=None):
         doc["path"]: doc for doc in embedding_metadata["documents"]
     }
 
-    # Determine which documents need to be updated
+    # Split each document into chunks
     encoder = tiktoken.encoding_for_model(MODEL_NAME)
-    for document in documents:
-        path = document["path"]
-        text = document["text"]
-
-        # Hash the document's contents
-        hasher = hashlib.sha256()
-        hasher.update(text.encode())
-        cur_hash = hasher.hexdigest()
-
-        # Check if the hash changed since the last run
-        prev_hash = embedding_metadata["documents"].get(path, {}).get("hash")
-        document["needs_update"] = cur_hash != prev_hash
-        document["hash"] = cur_hash
-        document["num_tokens"] = len(encoder.encode(text))
-
-    # Get document chunks. We get these for all documents (even those that don't need updates)
-    # to calculate stats about the repo
     splitter = RecursiveCharacterTextSplitter(chunk_overlap=0, chunk_size=1000)
     chunks = []
     for document in documents:
-        if not document["needs_update"]:
-            continue
-
         for chunk_num, chunk_text in enumerate(splitter.split_text(document["text"])):
+            # Determine if the embedding needs to be updated
             embedding_path = embedding_dir / f"{document['path']}.{chunk_num:04}.npy"
+            needs_update = True
+            if embedding_path.exists():
+                embedding = np.load(embedding_path)
+
+                # Check if the hash changed
+                hasher = 
+
+            # TODO: Validate the hash of the embedding
+
             chunk = {
                 "path": document["path"],
                 "chunk_num": chunk_num,
