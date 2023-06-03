@@ -12,5 +12,10 @@
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
-    "python.formatting.provider": "none"
+    "python.formatting.provider": "none",
+    "files.exclude": {
+        ".pytest_cache/": true,
+        "*.egg-info": true,
+        "**/__pycache__": true
+    }
 }

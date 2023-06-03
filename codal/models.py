@@ -1,53 +1,108 @@
-from django.db import models
+from io import BytesIO
+from pathlib import Path
+
+import numpy as np
+from sqlalchemy import (
+    Column,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    TypeDecorator,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import relationship
+
+from .database import Base
 
 
-class Organization(models.Model):
-    name = models.TextField(unique=True)
+class FilePath(TypeDecorator):
+    impl = String
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            return str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            return Path(value)
 
 
-class Repo(models.Model):
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
-    name = models.TextField()
-    zip_path = models.TextField(unique=True, null=True)
+class NumpyArray(TypeDecorator):
+    impl = LargeBinary
 
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["organization", "name"], name="unique_repo_org_name"
-            )
-        ]
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            out = BytesIO()
+            np.save(out, value)
+            out.seek(0)
+            return out.read()
 
-
-class Document(models.Model):
-    repo = models.ForeignKey(Repo, on_delete=models.CASCADE)
-    path = models.TextField()
-    text = models.TextField()
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["repo", "path"], name="unique_document_repo_path"
-            )
-        ]
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            out = BytesIO(value)
+            out.seek(0)
+            return np.load(out)
 
 
-class Chunk(models.Model):
-    document = models.ForeignKey(Document, on_delete=models.CASCADE)
-    start = models.IntegerField()
-    end = models.IntegerField()
-    embedding = models.OneToOneField("Embedding", on_delete=models.CASCADE)
+class Org(Base):
+    __tablename__ = "orgs"
 
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["document", "start"], name="unique_chunk_document_start"
-            ),
-            models.UniqueConstraint(
-                fields=["document", "end"], name="unique_chunk_document_end"
-            ),
-        ]
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+
+    repos = relationship("Repo", back_populates="org")
+
+    def __repr__(self):
+        return f"<Org: {self.name}>"
 
 
-class Embedding(models.Model):
-    path = models.TextField(unique=True)
-    hash = models.TextField(unique=True)
+class Repo(Base):
+    __tablename__ = "repos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    org_id = Column(ForeignKey("orgs.id"))
+    name = Column(String)
+    zip_path = Column(FilePath, unique=True, nullable=True)
+
+    org = relationship("Org", back_populates="repos")
+    documents = relationship("Document", back_populates="repo")
+
+    __table_args__ = (UniqueConstraint("org_id", "name"),)
+
+    def __repr__(self):
+        return f"<Repo: {self.org.name}/{self.name}>"
+
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    repo_id = Column(ForeignKey("repos.id"))
+    path = Column(FilePath)
+    text = Column(String)
+    num_tokens = Column(Integer)
+
+    repo = relationship("Repo", back_populates="documents")
+    chunks = relationship("Chunk", back_populates="document")
+
+    __table_args__ = (UniqueConstraint("repo_id", "path"),)
+
+
+class Chunk(Base):
+    __tablename__ = "chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(ForeignKey("documents.id"))
+    start = Column(Integer)
+    end = Column(Integer)
+    text = Column(String)
+    embedding = Column(NumpyArray)
+
+    document = relationship("Document", back_populates="chunks")
+
+    __table_args__ = (
+        UniqueConstraint("document_id", "start"),
+        UniqueConstraint("document_id", "end"),
+    )
