@@ -1,25 +1,20 @@
-import hashlib
-import json
 import time
 from functools import wraps
-from pathlib import Path
-from urllib.request import urlopen
-from zipfile import ZipFile
 
 import click
 import numpy as np
 import openai
 import tiktoken
-from django.core.management.base import BaseCommand, CommandError
+from git import Repo as GitRepo
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
 from . import __version__
 from .database import SessionLocal
 from .models import Chunk, Document, Org, Repo
-from .settings import ARCHIVE_DIR, CACHE_DIR, EMBEDDING_DIR, MODEL_NAME
+from .settings import MODEL_NAME, REPO_DIR
 
 
 def _provide_db(func):
@@ -39,8 +34,9 @@ def _get_embedding(text, model=MODEL_NAME, max_attempts=5, retry_delay=1):
             return openai.Embedding.create(input=[text], model=model)["data"][0][
                 "embedding"
             ]
+        # TODO: Only retry on 500 error
         except openai.error.OpenAIError as exception:
-            print(f"OpenAI error: {exception.reason}")
+            click.echo(f"OpenAI error: {exception}")
             if attempt < max_attempts - 1:  # No delay on last attempt, TODO: why not?
                 time.sleep(retry_delay)
             else:
@@ -88,84 +84,88 @@ def embed(repo, db: Session):
 
     db.commit()
 
-    # Download the repo zip file
-    zip_url = (
-        f"https://github.com/{repo.org.name}/{repo.name}/archive/refs/heads/main.zip"
-    )
-    if repo.zip_path is not None and repo.zip_path.exists():
-        click.echo(f"Using the cached archive: {repo.zip_path}")
+    # Clone or pull the repo
+    git_url = f"https://github.com/{repo.org.name}/{repo.name}.git"
+    git_dir = REPO_DIR / repo.org.name / repo.name
+    git_dir.mkdir(parents=True, exist_ok=True)
+    if (git_dir / ".git").exists():
+        click.echo(f"Updating the existing repo: {git_dir}")
+        git_repo = GitRepo(git_dir)
+        origin = git_repo.remote(name="origin")
+        origin.pull()
     else:
-        repo.zip_path = ARCHIVE_DIR / repo.org.name / f"{repo.name}.zip"
-        repo.zip_path.parent.mkdir(parents=True, exist_ok=True)
-        click.echo(f"Downloading the repo: {zip_url} -> {repo.zip_path}")
-        with urlopen(zip_url) as response, repo.zip_path.open("wb") as out_fp:
-            data = response.read()
-            out_fp.write(data)
-        db.add(repo)
+        click.echo(f"Cloning the repo: {git_url} -> {git_dir}")
+        git_repo = GitRepo.clone_from(git_url, git_dir)
 
-    db.commit()
+    head = git_repo.head.commit.hexsha
 
-    # Read the documents from the archiv
+    # Read documents from the repo
     encoder = tiktoken.encoding_for_model(MODEL_NAME)
     documents = []
-    with repo.zip_path.open("rb") as archive_fp:
-        with ZipFile(archive_fp) as archive:
-            for filename in archive.namelist():
-                path = Path(filename)
-                if path.is_dir():
-                    continue
-                with archive.open(filename) as fp:
-                    try:
-                        text = fp.read().decode()
-                    except UnicodeDecodeError:
-                        continue
-
-                    path = path.relative_to(path.parts[0])
-
-                    document = db.execute(
-                        select(Document).where(
-                            Document.path == path, Document.repo_id == repo.id
-                        )
-                    ).scalar_one_or_none()
-                    if document is None:
-                        document = Document(path=path, repo=repo)
-                    else:
-                        # A document already exists. If the text has changed, clear all of its
-                        # chunks
-                        if document.text != text:
-                            num_deleted = db.execute(
-                                delete(Chunk).where(Chunk.document_id == document.id)
-                            ).rowcount
-                            click.echo(
-                                f"Document: {document.path} has changed. Deleting {num_deleted} "
-                                "existing chunks"
-                            )
-                    document.text = text
-                    document.num_tokens = len(encoder.encode(text))
-                    documents.append(document)
-
-    db.add_all(documents)
-    # TODO: Should we commit here? Since if we error during chunk/embedding creation, we can end up
-    #       in an unusable state.
-    db.commit()
-
-    dollars_per_1k_tokens = 0.0004
-    num_tokens = sum(document.num_tokens for document in documents)
-    click.echo(f"Documents: {len(documents)}")
-    click.echo(f"Tokens: {num_tokens}")
-    click.echo(f"Estimated price: ${dollars_per_1k_tokens * num_tokens / 1000}")
-    # TODO: Estimated time
-
-    embedding_dir = EMBEDDING_DIR / repo.org.name / repo.name
-    embedding_dir.mkdir(parents=True, exist_ok=True)
-
-    # Split each document into chunks
-    splitter = RecursiveCharacterTextSplitter(chunk_overlap=0, chunk_size=1000)
-    chunks = []
-    for document in tqdm(documents):
-        if not document.text:
+    for path in git_dir.rglob("*"):
+        if path.is_dir():
+            continue
+        if ".git" in path.parts:
             continue
 
+        with path.open() as fp:
+            try:
+                text = fp.read()
+            except UnicodeDecodeError:
+                continue
+
+            if not text:
+                continue
+
+            path = path.relative_to(git_dir)
+
+            document = db.execute(
+                select(Document).where(
+                    Document.repo_id == repo.id,
+                    Document.path == path,
+                    Document.head == head,
+                )
+            ).scalar_one_or_none()
+            if document is None:
+                document = Document(
+                    path=path,
+                    repo=repo,
+                    head=head,
+                    text=text,
+                    num_tokens=len(encoder.encode(text)),
+                )
+            else:
+                assert document.text == text
+            documents.append(document)
+
+    db.add_all(documents)
+    db.commit()
+
+    unprocessed_documents = [
+        document for document in documents if not document.processed
+    ]
+
+    # Log stats about documents, tokens, and cost to process
+    dollars_per_1k_tokens = 0.0004
+    num_documents = len(documents)
+    num_tokens = sum(document.num_tokens for document in documents)
+    num_unprocessed_documents = len(unprocessed_documents)
+    num_unprocessed_tokens = sum(
+        document.num_tokens for document in unprocessed_documents
+    )
+    click.echo(f"Documents: {num_documents}")
+    click.echo(f"Documents to process: {num_unprocessed_documents}")
+    click.echo(f"Tokens: {num_tokens}")
+    click.echo(f"Tokens to process: {num_unprocessed_tokens}")
+    click.echo(
+        f"Estimated price: ${dollars_per_1k_tokens * num_unprocessed_tokens / 1000}"
+    )
+    # TODO: Estimated time
+
+    # Process documents
+    splitter = RecursiveCharacterTextSplitter(chunk_overlap=0, chunk_size=1000)
+    for document in tqdm(unprocessed_documents):
+        chunks = []
         start = 0
         end = start
         for chunk_num, chunk_text in enumerate(splitter.split_text(document.text)):
@@ -183,11 +183,9 @@ def embed(repo, db: Session):
                     document_id=document.id,
                     start=start,
                     end=end,
-                    text=text,
+                    text=chunk_text,
                     embedding=embedding,
                 )
-                db.add(chunk)
-                db.commit()
             else:
                 assert chunk.text == chunk_text
                 assert chunk.end == end
@@ -195,3 +193,13 @@ def embed(repo, db: Session):
             chunks.append(chunk)
 
             start = end
+
+        document.processed = True
+
+        db.add_all(chunks)
+        db.add(document)
+        db.commit()
+
+    repo.head = head
+    db.add(repo)
+    db.commit()

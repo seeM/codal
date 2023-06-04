@@ -32,6 +32,7 @@ setup(
     install_requires=[
         "alembic",
         "click",
+        "GitPython",
         "langchain",
         "numpy",
         "openai",

@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 from sqlalchemy import (
+    Boolean,
     Column,
     ForeignKey,
     Integer,
@@ -64,7 +65,7 @@ class Repo(Base):
     id = Column(Integer, primary_key=True, index=True)
     org_id = Column(ForeignKey("orgs.id"))
     name = Column(String)
-    zip_path = Column(FilePath, unique=True, nullable=True)
+    head = Column(String)
 
     org = relationship("Org", back_populates="repos")
     documents = relationship("Document", back_populates="repo")
@@ -80,14 +81,20 @@ class Document(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     repo_id = Column(ForeignKey("repos.id"))
+    head = Column(String)
     path = Column(FilePath)
     text = Column(String)
     num_tokens = Column(Integer)
+    processed = Column(Boolean)
 
     repo = relationship("Repo", back_populates="documents")
     chunks = relationship("Chunk", back_populates="document")
 
-    __table_args__ = (UniqueConstraint("repo_id", "path"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "repo_id", "path", "head", name="unique__document__repo_path_head"
+        ),
+    )
 
 
 class Chunk(Base):
