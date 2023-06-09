@@ -44,7 +44,8 @@ setup(
         "SQLAlchemy",
         "tiktoken",
         "tqdm",
+        "typing_extensions",
     ],
-    extras_require={"test": ["pytest", "cogapp", "sqlalchemy[mypy]", "types-tqdm"]},
+    extras_require={"test": ["pytest", "cogapp", "types-tqdm"]},
     python_requires=">=3.8",
 )

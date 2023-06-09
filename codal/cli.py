@@ -11,10 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
-from . import __version__
 from .database import SessionLocal
 from .models import Chunk, Document, Org, Repo
 from .settings import MODEL_NAME, REPO_DIR
+from .version import __version__
 
 
 def _provide_db(func):
