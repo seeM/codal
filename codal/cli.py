@@ -89,12 +89,12 @@ def embed(repo, db: Session):
     git_dir = REPO_DIR / repo.org.name / repo.name
     git_dir.mkdir(parents=True, exist_ok=True)
     if (git_dir / ".git").exists():
-        click.echo(f"Updating the existing repo: {git_dir}")
+        click.echo(f"Updating repo: {git_dir}")
         git_repo = GitRepo(git_dir)
         origin = git_repo.remote(name="origin")
         origin.pull()
     else:
-        click.echo(f"Cloning the repo: {git_url} -> {git_dir}")
+        click.echo(f"Cloning repo: {git_url} -> {git_dir}")
         git_repo = GitRepo.clone_from(git_url, git_dir)
 
     head = git_repo.head.commit.hexsha
@@ -126,6 +126,7 @@ def embed(repo, db: Session):
                     Document.head == head,
                 )
             ).scalar_one_or_none()
+
             if document is None:
                 document = Document(
                     path=path,
@@ -136,6 +137,7 @@ def embed(repo, db: Session):
                 )
             else:
                 assert document.text == text
+
             documents.append(document)
 
     db.add_all(documents)

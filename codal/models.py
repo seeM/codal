@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from io import BytesIO
 from pathlib import Path
+from typing import List
 
 import numpy as np
 from sqlalchemy import (
@@ -50,10 +53,10 @@ class NumpyArray(TypeDecorator):
 class Org(Base):
     __tablename__ = "orgs"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True)
+    id: int = Column(Integer, primary_key=True, index=True)
+    name: str = Column(String, unique=True, index=True)
 
-    repos = relationship("Repo", back_populates="org")
+    repos: List[Repo] = relationship("Repo", back_populates="org")
 
     def __repr__(self):
         return f"<Org: {self.name}>"
@@ -62,13 +65,13 @@ class Org(Base):
 class Repo(Base):
     __tablename__ = "repos"
 
-    id = Column(Integer, primary_key=True, index=True)
-    org_id = Column(ForeignKey("orgs.id"))
-    name = Column(String)
-    head = Column(String)
+    id: int = Column(Integer, primary_key=True, index=True)
+    org_id: int = Column(ForeignKey("orgs.id"))
+    name: str = Column(String)
+    head: str = Column(String)
 
-    org = relationship("Org", back_populates="repos")
-    documents = relationship("Document", back_populates="repo")
+    org: Org = relationship("Org", back_populates="repos")
+    documents: List[Document] = relationship("Document", back_populates="repo")
 
     __table_args__ = (UniqueConstraint("org_id", "name"),)
 
@@ -79,16 +82,16 @@ class Repo(Base):
 class Document(Base):
     __tablename__ = "documents"
 
-    id = Column(Integer, primary_key=True, index=True)
-    repo_id = Column(ForeignKey("repos.id"))
-    head = Column(String)
-    path = Column(FilePath)
-    text = Column(String)
-    num_tokens = Column(Integer)
-    processed = Column(Boolean)
+    id: int = Column(Integer, primary_key=True, index=True)
+    repo_id: int = Column(ForeignKey("repos.id"))
+    head: str = Column(String)
+    path: Path = Column(FilePath)
+    text: str = Column(String)
+    num_tokens: int = Column(Integer)
+    processed: bool = Column(Boolean)
 
-    repo = relationship("Repo", back_populates="documents")
-    chunks = relationship("Chunk", back_populates="document")
+    repo: Repo = relationship("Repo", back_populates="documents")
+    chunks: List[Chunk] = relationship("Chunk", back_populates="document")
 
     __table_args__ = (
         UniqueConstraint(
@@ -100,14 +103,14 @@ class Document(Base):
 class Chunk(Base):
     __tablename__ = "chunks"
 
-    id = Column(Integer, primary_key=True, index=True)
-    document_id = Column(ForeignKey("documents.id"))
-    start = Column(Integer)
-    end = Column(Integer)
-    text = Column(String)
-    embedding = Column(NumpyArray)
+    id: int = Column(Integer, primary_key=True, index=True)
+    document_id: int = Column(ForeignKey("documents.id"))
+    start: int = Column(Integer)
+    end: int = Column(Integer)
+    text: str = Column(String)
+    embedding: np.ndarray = Column(NumpyArray)
 
-    document = relationship("Document", back_populates="chunks")
+    document: Document = relationship("Document", back_populates="chunks")
 
     __table_args__ = (
         UniqueConstraint("document_id", "start"),

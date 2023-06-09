@@ -1,7 +1,7 @@
 """First revision
 
 Revision ID: 32fab6cd6262
-Revises: 
+Revises:
 Create Date: 2023-06-03 18:35:46.887416
 
 """

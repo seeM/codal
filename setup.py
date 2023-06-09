@@ -2,12 +2,17 @@ from pathlib import Path
 
 from setuptools import setup
 
-from codal import __version__
-
 
 def get_long_description():
     with (Path(__file__).parent / "README.md").open() as fp:
         return fp.read()
+
+
+def get_version():
+    g = {}
+    with (Path(__file__).parent / "codal" / "version.py").open() as fp:
+        exec(fp.read(), g)
+    return g["__version__"]
 
 
 setup(
@@ -23,7 +28,7 @@ setup(
         "Changelog": "https://github.com/seem/codal/releases",
     },
     license="Apache License, Version 2.0",
-    version=__version__,
+    version=get_version(),
     packages=["codal"],
     entry_points="""
         [console_scripts]
@@ -40,6 +45,6 @@ setup(
         "tiktoken",
         "tqdm",
     ],
-    extras_require={"test": ["pytest", "cogapp"]},
+    extras_require={"test": ["pytest", "cogapp", "sqlalchemy[mypy]", "types-tqdm"]},
     python_requires=">=3.8",
 )

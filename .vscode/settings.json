@@ -7,6 +7,7 @@
         },    
     },
     "python.linting.flake8Enabled": true,
+    "python.linting.mypyEnabled": true,
     "python.testing.pytestArgs": [
         "tests"
     ],
@@ -16,6 +17,7 @@
     "files.exclude": {
         ".pytest_cache/": true,
         "*.egg-info": true,
-        "**/__pycache__": true
-    }
+        "**/__pycache__": true,
+        ".mypy_cache/": true,
+    },
 }

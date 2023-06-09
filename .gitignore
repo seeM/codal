@@ -2,5 +2,6 @@
 .pytest_cache
 *.egg-info
 __pycache__
+.mypy_cache
 *.db
 *.sqlite3
