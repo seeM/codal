@@ -100,9 +100,9 @@ def embed(repo, db: Session, head: Optional[str]):
 
     if head is not None:
         click.echo(f"Checking out: {head}")
-        git_repo.git.checkout(f"origin/{head}")
+        git_repo.git.checkout(head)
     else:
-        click.echo(f"Checking out: {repo.default_branch}")
+        click.echo(f"Checking out: origin/{repo.default_branch}")
         git_repo.git.checkout(f"origin/{repo.default_branch}")
         head = git_repo.head.commit.hexsha
 
