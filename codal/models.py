@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import numpy as np
-from sqlalchemy import ForeignKey, LargeBinary, String, TypeDecorator, UniqueConstraint
+from sqlalchemy import (
+    Column,
+    ForeignKey,
+    LargeBinary,
+    String,
+    Table,
+    TypeDecorator,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing_extensions import Annotated
 
@@ -42,7 +50,6 @@ class NumpyArray(TypeDecorator):
             return np.load(out)
 
 
-int_primary_key = Annotated[int, mapped_column(primary_key=True)]
 array = Annotated[np.ndarray, mapped_column(NumpyArray)]
 path = Annotated[Path, mapped_column(FilePath)]
 
@@ -51,10 +58,10 @@ class Org(Base):
     __tablename__ = "orgs"
 
     # TODO: Can we remove index on unique??
-    id: Mapped[int_primary_key]
+    id: Mapped[int] = mapped_column(init=False, primary_key=True)
     name: Mapped[str] = mapped_column(unique=True, index=True)
 
-    repos: Mapped[List[Repo]] = relationship(back_populates="org")
+    repos: Mapped[List[Repo]] = relationship(default_factory=list, back_populates="org")
 
     def __repr__(self):
         return f"<Org: {self.name}>"
@@ -63,58 +70,59 @@ class Org(Base):
 class Repo(Base):
     __tablename__ = "repos"
 
-    id: Mapped[int_primary_key]
-    org_id: Mapped[int] = mapped_column(ForeignKey("orgs.id"))
+    id: Mapped[int] = mapped_column(init=False, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("orgs.id"), init=False)
     name: Mapped[str]
-    head: Mapped[str]
 
     org: Mapped[Org] = relationship(back_populates="repos")
-    documents: Mapped[List[Document]] = relationship(back_populates="repo")
-
-    __table_args__ = (
-        UniqueConstraint("org_id", "name", name="unique__repo__org_id__name"),
+    documents: Mapped[List[Document]] = relationship(
+        default_factory=list, back_populates="repo"
     )
+
+    default_branch: Mapped[str] = mapped_column(default=None)
+    head: Mapped[str] = mapped_column(default=None)
+
+    __table_args__ = (UniqueConstraint("org_id", "name"),)
 
     def __repr__(self):
         return f"<Repo: {self.org.name}/{self.name}>"
 
 
+# note for a Core table, we use the sqlalchemy.Column construct,
+# not sqlalchemy.orm.mapped_column
+documents_chunks = Table(
+    "documents_chunks",
+    Base.metadata,
+    Column("document_id", ForeignKey("documents.id"), primary_key=True),
+    Column("chunk_id", ForeignKey("chunks.id"), primary_key=True),
+)
+
+
 class Document(Base):
     __tablename__ = "documents"
 
-    id: Mapped[int_primary_key]
-    repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"))
+    id: Mapped[int] = mapped_column(init=False, primary_key=True)
+    repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"), init=False)
     head: Mapped[str]
     path: Mapped[path]
     text: Mapped[str]
     num_tokens: Mapped[int]
-    processed: Mapped[bool]
 
     repo: Mapped[Repo] = relationship(back_populates="documents")
-    chunks: Mapped[List[Chunk]] = relationship(back_populates="document")
-
-    __table_args__ = (
-        UniqueConstraint(
-            "repo_id", "path", "head", name="unique__document__repo__path__head"
-        ),
+    chunks: Mapped[List[Chunk]] = relationship(
+        default_factory=list, secondary=documents_chunks
     )
+
+    processed: Mapped[bool] = mapped_column(default=False)
+
+    __table_args__ = (UniqueConstraint("repo_id", "path", "head"),)
 
 
 class Chunk(Base):
     __tablename__ = "chunks"
 
-    id: Mapped[int_primary_key]
-    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"))
-    start: Mapped[int]
+    id: Mapped[int] = mapped_column(init=False, primary_key=True)
+    start: Mapped[Optional[int]]
     end: Mapped[int]
     text: Mapped[str]
     embedding: Mapped[array]
-
-    document: Mapped[Document] = relationship(back_populates="chunks")
-
-    __table_args__ = (
-        UniqueConstraint(
-            "document_id", "start", name="unique__chunk__document_id__start"
-        ),
-        UniqueConstraint("document_id", "end", name="unique__chunk__document_id__end"),
-    )

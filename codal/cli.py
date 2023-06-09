@@ -1,5 +1,6 @@
 import time
 from functools import wraps
+from typing import Optional
 
 import click
 import numpy as np
@@ -54,8 +55,9 @@ def cli():
 
 @cli.command()
 @click.argument("repo")
+@click.option("--head", help="Commit hash to embed.")
 @_provide_db
-def embed(repo, db: Session):
+def embed(repo, db: Session, head: Optional[str]):
     """
     Embed a GitHub repo.
 
@@ -66,7 +68,6 @@ def embed(repo, db: Session):
 
         codal embed seem/codal
     """
-
     # Create the organization and repo
     org_name, repo_name = repo.split("/")
 
@@ -75,14 +76,13 @@ def embed(repo, db: Session):
         org = Org(name=org_name)
         db.add(org)
 
+    db.commit()
+
     repo = db.execute(
         select(Repo).where(Repo.name == repo_name, Repo.org_id == org.id)
     ).scalar_one_or_none()
     if repo is None:
         repo = Repo(name=repo_name, org=org)
-        db.add(repo)
-
-    db.commit()
 
     # Clone or pull the repo
     git_url = f"https://github.com/{repo.org.name}/{repo.name}.git"
@@ -96,8 +96,18 @@ def embed(repo, db: Session):
     else:
         click.echo(f"Cloning repo: {git_url} -> {git_dir}")
         git_repo = GitRepo.clone_from(git_url, git_dir)
+        repo.default_branch = git_repo.active_branch.name
 
-    head = git_repo.head.commit.hexsha
+    if head is not None:
+        git_repo.git.checkout(head)
+    else:
+        git_repo.git.checkout(repo.default_branch)
+        head = git_repo.head.commit.hexsha
+
+    prev_head = repo.head
+    repo.head = head
+    db.add(repo)
+    db.commit()
 
     # Read documents from the repo
     encoder = tiktoken.encoding_for_model(MODEL_NAME)
@@ -119,6 +129,7 @@ def embed(repo, db: Session):
 
             path = path.relative_to(git_dir)
 
+            # If a document does not exist for this head, create one.
             document = db.execute(
                 select(Document).where(
                     Document.repo_id == repo.id,
@@ -126,22 +137,39 @@ def embed(repo, db: Session):
                     Document.head == head,
                 )
             ).scalar_one_or_none()
-
             if document is None:
                 document = Document(
                     path=path,
                     repo=repo,
                     head=head,
                     text=text,
+                    # TODO: Could make num_tokens a property or method
                     num_tokens=len(encoder.encode(text)),
                 )
             else:
                 assert document.text == text
 
-            documents.append(document)
+            # Use the chunks from the previous head, if we can.
+            if not document.processed:
+                previous_document = db.execute(
+                    select(Document).where(
+                        Document.repo_id == repo.id,
+                        Document.path == path,
+                        Document.head == prev_head,
+                    )
+                ).scalar_one_or_none()
+                if (
+                    previous_document is not None
+                    and previous_document.processed
+                    and document.text == previous_document.text
+                ):
+                    document.chunks = previous_document.chunks
+                    document.processed = True
 
-    db.add_all(documents)
-    db.commit()
+            db.add(document)
+            db.commit()
+
+            documents.append(document)
 
     unprocessed_documents = [
         document for document in documents if not document.processed
@@ -173,32 +201,22 @@ def embed(repo, db: Session):
         for chunk_num, chunk_text in enumerate(splitter.split_text(document.text)):
             end += len(chunk_text)
 
-            chunk = db.execute(
-                select(Chunk).where(
-                    Chunk.document_id == document.id, Chunk.start == start
-                )
-            ).scalar_one_or_none()
-            if chunk is None:
-                embedding_raw = _get_embedding(chunk_text)
-                embedding = np.array(embedding_raw)
-                chunk = Chunk(
-                    document_id=document.id,
-                    start=start,
-                    end=end,
-                    text=chunk_text,
-                    embedding=embedding,
-                )
-            else:
-                assert chunk.text == chunk_text
-                assert chunk.end == end
+            embedding_raw = _get_embedding(chunk_text)
+            embedding = np.array(embedding_raw)
+            chunk = Chunk(
+                start=start,
+                end=end,
+                text=chunk_text,
+                embedding=embedding,
+            )
 
             chunks.append(chunk)
 
             start = end
 
+        document.chunks = chunks
         document.processed = True
 
-        db.add_all(chunks)
         db.add(document)
         db.commit()
 
