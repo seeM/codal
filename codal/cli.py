@@ -89,19 +89,21 @@ def embed(repo, db: Session, head: Optional[str]):
     git_dir = REPO_DIR / repo.org.name / repo.name
     git_dir.mkdir(parents=True, exist_ok=True)
     if (git_dir / ".git").exists():
-        click.echo(f"Updating repo: {git_dir}")
+        click.echo(f"Fetching latest changes: {git_dir}")
         git_repo = GitRepo(git_dir)
         origin = git_repo.remote(name="origin")
-        origin.pull()
+        origin.fetch()
     else:
         click.echo(f"Cloning repo: {git_url} -> {git_dir}")
         git_repo = GitRepo.clone_from(git_url, git_dir)
         repo.default_branch = git_repo.active_branch.name
 
     if head is not None:
-        git_repo.git.checkout(head)
+        click.echo(f"Checking out: {head}")
+        git_repo.git.checkout(f"origin/{head}")
     else:
-        git_repo.git.checkout(repo.default_branch)
+        click.echo(f"Checking out: {repo.default_branch}")
+        git_repo.git.checkout(f"origin/{repo.default_branch}")
         head = git_repo.head.commit.hexsha
 
     prev_head = repo.head
@@ -223,3 +225,5 @@ def embed(repo, db: Session, head: Optional[str]):
     repo.head = head
     db.add(repo)
     db.commit()
+
+    click.echo(f"Repo updated to head: {head}")
