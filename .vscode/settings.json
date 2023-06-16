@@ -17,4 +17,5 @@
         "**/__pycache__": true,
         ".mypy_cache/": true,
     },
+    "editor.rulers": [100],
 }
