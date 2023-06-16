@@ -38,6 +38,7 @@ setup(
         "alembic",
         "click",
         "GitPython",
+        "hnswlib",
         "langchain",
         "numpy",
         "openai",

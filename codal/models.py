@@ -90,10 +90,10 @@ class Repo(Base):
 
 # note for a Core table, we use the sqlalchemy.Column construct,
 # not sqlalchemy.orm.mapped_column
-documents_chunks = Table(
-    "documents_chunks",
+document_version_chunks = Table(
+    "document_versions",
     Base.metadata,
-    Column("document_id", ForeignKey("documents.id"), primary_key=True),
+    Column("document_version_id", ForeignKey("document_versions.id"), primary_key=True),
     Column("chunk_id", ForeignKey("chunks.id"), primary_key=True),
 )
 
@@ -103,26 +103,52 @@ class Document(Base):
 
     id: Mapped[int] = mapped_column(init=False, primary_key=True)
     repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"), init=False)
-    head: Mapped[str]
     path: Mapped[path]
-    text: Mapped[str]
-    num_tokens: Mapped[int]
 
     repo: Mapped[Repo] = relationship(back_populates="documents")
-    chunks: Mapped[List[Chunk]] = relationship(
-        default_factory=list, secondary=documents_chunks
+    versions: Mapped[List[DocumentVersion]] = relationship(
+        default_factory=list, back_populates="document"
     )
 
+    __table_args__ = (UniqueConstraint("repo_id", "path"),)
+
+
+class DocumentVersion(Base):
+    __tablename__ = "document_versions"
+
+    id: Mapped[int] = mapped_column(init=False, primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"), init=False)
+    commit: Mapped[str]
+    text: Mapped[str]
+    num_tokens: Mapped[int]
     processed: Mapped[bool] = mapped_column(default=False)
 
-    __table_args__ = (UniqueConstraint("repo_id", "path", "head"),)
+    document: Mapped[Document] = relationship(default=None, back_populates="versions")
+    chunks: Mapped[List[Chunk]] = relationship(
+        default_factory=list,
+        secondary=document_version_chunks,
+        back_populates="document_versions",
+    )
+
+    __table_args__ = (UniqueConstraint("document_id", "commit"),)
 
 
 class Chunk(Base):
     __tablename__ = "chunks"
 
     id: Mapped[int] = mapped_column(init=False, primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"), init=False)
     start: Mapped[Optional[int]]
     end: Mapped[int]
     text: Mapped[str]
     embedding: Mapped[array]
+
+    document: Mapped[Document] = relationship(
+        default=None, back_populates="chunks", repr=False
+    )
+    document_versions: Mapped[List[Document]] = relationship(
+        default_factory=list,
+        secondary=document_version_chunks,
+        back_populates="chunks",
+        repr=False,
+    )
