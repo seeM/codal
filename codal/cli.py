@@ -112,6 +112,9 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
 
     git_commit = git_repo.head.commit
 
+    db.add(repo)
+    db.commit()
+
     commit = db.execute(
         select(Commit).where(Commit.repo == repo, Commit.sha == git_commit.hexsha)
     ).scalar_one_or_none()
@@ -129,7 +132,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         )
 
     prev_head = repo.head_commit
-    db.add_all([repo, commit])
+    db.add(commit)
     db.commit()
 
     # Read documents from the repo
