@@ -241,6 +241,7 @@ def embed(repo, db: Session, head: Optional[str]):
             embedding_raw = _get_embedding(chunk_text)
             embedding = np.array(embedding_raw)
             chunk = Chunk(
+                document=document_version.document,
                 start=start,
                 end=end,
                 text=chunk_text,
