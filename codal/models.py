@@ -83,26 +83,12 @@ class Repo(Base):
     )
     documents: Mapped[List[Document]] = relationship(back_populates="repo")
 
-    __table_args__ = (Index("org_id", "name", unique=True),)
-
-
-# class RepoHead(Base):
-#     __tablename__ = "repo_heads"
-
-#     repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"), primary_key=True)
-#     commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"))
-
-#     repo: Mapped[Repo] = relationship(
-#         back_populates="head_commit", foreign_keys=repo_id
-#     )
-#     head_commit: Mapped[Commit] = relationship(
-#         back_populates="repo", foreign_keys=commit_id
-#     )
-
-#     __table_args__ = (
-#         UniqueConstraint("repo_id"),
-#         ForeignKeyConstraint(["repo_id", "commit_id"], ["repos.id", "commits.id"]),
-#     )
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["id", "head_commit_id"], ["commits.repo_id", "commits.id"]
+        ),
+        Index("org_id", "name", unique=True),
+    )
 
 
 class Commit(Base):
