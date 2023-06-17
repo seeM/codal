@@ -211,18 +211,12 @@ def embed(repo, db: Session, head: Optional[str]):
 
     # Log stats about documents, tokens, and cost to process
     dollars_per_1k_tokens = 0.0004
-    num_documents = len(document_versions)
-    num_tokens = sum(
-        document_version.num_tokens for document_version in document_versions
-    )
     num_unprocessed_documents = len(unprocessed_document_versions)
     num_unprocessed_tokens = sum(
         document_version.num_tokens
         for document_version in unprocessed_document_versions
     )
-    click.echo(f"Documents: {num_documents}")
     click.echo(f"Documents to process: {num_unprocessed_documents}")
-    click.echo(f"Tokens: {num_tokens}")
     click.echo(f"Tokens to process: {num_unprocessed_tokens}")
     click.echo(
         f"Estimated price: ${dollars_per_1k_tokens * num_unprocessed_tokens / 1000}"
@@ -263,7 +257,7 @@ def embed(repo, db: Session, head: Optional[str]):
     db.add(repo)
     db.commit()
 
-    click.echo(f"Repo updated to head: {head}")
+    click.echo(f"Repo updated to head: {commit.sha}")
 
 
 @cli.command()
