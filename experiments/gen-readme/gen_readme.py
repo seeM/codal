@@ -8,6 +8,22 @@ import pathspec
 import tiktoken
 
 
+def complete(prompt: str, model: str) -> str:
+    result = []
+    for chunk in openai.ChatCompletion.create(
+        model=model,
+        messages=[
+            {"role": "user", "content": prompt},
+        ],
+        stream=True,
+    ):
+        content = chunk.choices[0].get("delta", {}).get("content")  # type: ignore
+        if content is not None:
+            result.append(content)
+            click.echo(content, nl=False)
+    return "".join(result)
+
+
 def summarize_text(
     text: str, path: Path, model: str, repo_name: Optional[str] = None
 ) -> str:
@@ -32,19 +48,13 @@ def summarize_text(
         f"- These files belongs to the code repo: {repo_name}.\n"
         if repo_name
         else ""
-        f"- Your summary will eventually be used together with similarly generated summaries of "
-        f"other files to write a README.md for the repo.\n"
         f"- Do not start the summary with 'This file contains [summary]'. Rather start with '[summary]'.\n"
-        f"- It is very important that you include all information that is important for writing "
-        f"a README.md file, while also trying to be as succinct as possible.\n"
-        f"    - For example, this is not useful for writing a README.md file: 'The setup.py file contains information about the package and its dependencies.' "
-        f"Instead, this is useful: 'The package depends on the following packages: numpy, scipy, and pandas.'\n"
-        f"- However, it's okay to have a long summary if the file contains lots of information.\n"
-        f"- If you are summarizing a file that contains code, include code snippets that help summarize the file.\n"
-        f"- Include code examples of how to use the public classes and functions defined in a file.\n"
-        f"- Do not discuss private classes or functions. In Python, private objects are marked with a leading underscore in their name, e.g. `_func`\n"
+        f"- Minimize prose. For example, do not say: 'The setup.py file contains information about the package and its dependencies.' "
+        f"Instead, say: 'The package depends on the following packages: numpy, scipy, and pandas.'\n"
+        f"- Include code examples of how to use the public classes and functions defined in a file. "
+        f"Do not discuss private classes or functions. In Python, private objects are marked with a leading underscore in their name, e.g. `_func()`\n"
         f"- Write in a style combining that of Simon Willison and Jeremy Howard\n"
-        f"- Think step-by-step\n"
+        f"- Use mermaid diagrams to explain the structure of complex data models or processes\n"
         f"\n"
         f"## File: {path}\n\n"
         f"### Contents\n\n```"
@@ -52,15 +62,8 @@ def summarize_text(
     if language:
         prompt += language
     prompt += f"\n{text}\n```\n\n### Summary\n\n"
-    # click.echo(prompt, err=True)
 
-    response = openai.ChatCompletion.create(
-        model=model,
-        messages=[
-            {"role": "user", "content": prompt},
-        ],
-    )
-    summary = response.choices[0].message.content.strip()  # type: ignore
+    summary = complete(prompt, model)
     return summary
 
 
@@ -113,16 +116,8 @@ def readme(repo_dir, model):
     if not click.confirm("Continue?", err=True):
         return
 
-    response = openai.ChatCompletion.create(
-        model=model,
-        messages=[
-            {"role": "user", "content": prompt},
-        ],
-    )
-
     # Generate README.md
-    result = response.choices[0].message.content.strip()  # type: ignore
-    click.echo(result)
+    complete(prompt, model)
 
 
 @cli.command()
@@ -142,7 +137,6 @@ def summarize(path_or_dir, model):
     if path_or_dir.is_file():
         text = path_or_dir.read_text()
         summary = summarize_text(text, path=path_or_dir, model=model)
-        click.echo(summary)
     elif path_or_dir.is_dir():
         # Traverse up to a git directory
         repo_dir = path_or_dir
@@ -174,7 +168,6 @@ def summarize(path_or_dir, model):
             if path.name == ".gitignore":
                 continue
 
-            # click.echo(path, err=True)
             try:
                 text = path.read_text()
             except UnicodeDecodeError:
@@ -199,7 +192,6 @@ def summarize(path_or_dir, model):
                 summary = summarize_text(
                     text, path=path_or_dir, repo_name=repo_name, model=model
                 )
-                click.echo(summary, err=True)
                 document["summary"] = summary
 
             def get_saved_document(document):
