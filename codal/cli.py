@@ -109,6 +109,7 @@ def embed(repo, db: Session, head: Optional[str]):
 
     commit = Commit(
         repo=repo,
+        repo_id=repo.id,
         sha=git_commit.hexsha,
         message=str(git_commit.message),
         author_name=git_commit.author.name,
@@ -119,8 +120,13 @@ def embed(repo, db: Session, head: Optional[str]):
 
     prev_head = repo.head_commit
     repo.head_commit = commit
-    db.add(repo)
+    repo.head_commit_id = commit.id
+    db.add_all([commit, repo])
     db.commit()
+    print(commit.id)
+    exit()
+    # db.add(repo)
+    # db.commit()
 
     # Read documents from the repo
     encoder = tiktoken.encoding_for_model(MODEL_NAME)

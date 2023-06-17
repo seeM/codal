@@ -1,5 +1,5 @@
 from sqlalchemy import MetaData, create_engine
-from sqlalchemy.orm import DeclarativeBase, MappedAsDataclass, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./codal.db"
 
@@ -19,5 +19,5 @@ metadata = MetaData(
 )
 
 
-class Base(MappedAsDataclass, DeclarativeBase):
+class Base(DeclarativeBase):
     metadata = metadata

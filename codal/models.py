@@ -6,12 +6,10 @@ from typing import List, Optional
 
 import numpy as np
 from sqlalchemy import (
-    Column,
     ForeignKey,
     ForeignKeyConstraint,
     LargeBinary,
     String,
-    Table,
     TypeDecorator,
     UniqueConstraint,
 )
@@ -59,46 +57,55 @@ class Org(Base):
     __tablename__ = "orgs"
 
     # TODO: Can we remove index on unique??
-    id: Mapped[int] = mapped_column(init=False, primary_key=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(unique=True, index=True)
 
-    repos: Mapped[List[Repo]] = relationship(default_factory=list, back_populates="org")
+    repos: Mapped[List[Repo]] = relationship(back_populates="org")
 
 
 class Repo(Base):
     __tablename__ = "repos"
 
-    id: Mapped[int] = mapped_column(init=False, primary_key=True)
-    org_id: Mapped[int] = mapped_column(ForeignKey("orgs.id"), init=False)
-    head_commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"), init=False)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("orgs.id"))
     name: Mapped[str]
+    head_commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"))
 
     org: Mapped[Org] = relationship(back_populates="repos")
-    head_commit: Mapped[Commit] = relationship(
-        default=None, foreign_keys=head_commit_id, post_update=True
-    )
     commits: Mapped[List[Commit]] = relationship(
-        default_factory=list, back_populates="repo", foreign_keys="Commit.repo_id"
+        back_populates="repo", foreign_keys="Commit.repo_id"
     )
-    documents: Mapped[List[Document]] = relationship(
-        default_factory=list, back_populates="repo"
-    )
+    documents: Mapped[List[Document]] = relationship(back_populates="repo")
 
-    default_branch: Mapped[str] = mapped_column(default=None)
+    default_branch: Mapped[str] = mapped_column()
+
+    __table_args__ = (UniqueConstraint("org_id", "name"),)
+
+
+class RepoHead(Base):
+    __tablename__ = "repo_heads"
+
+    repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"), primary_key=True)
+    commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"))
+
+    repo: Mapped[Repo] = relationship(
+        back_populates="head_commit", foreign_keys=repo_id
+    )
+    head_commit: Mapped[Commit] = relationship(
+        back_populates="repo", foreign_keys=commit_id
+    )
 
     __table_args__ = (
-        ForeignKeyConstraint(
-            ["id", "head_commit_id"], ["commits.repo_id", "commits.id"]
-        ),
-        UniqueConstraint("org_id", "name"),
+        UniqueConstraint("repo_id"),
+        ForeignKeyConstraint(["repo_id", "commit_id"], ["repos.id", "commits.id"]),
     )
 
 
 class Commit(Base):
     __tablename__ = "commits"
 
-    id: Mapped[int] = mapped_column(init=False, primary_key=True)
-    repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"), init=False)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"))  # , init=False)
     sha: Mapped[str]
     message: Mapped[str]
     author_name: Mapped[Optional[str]]
@@ -108,56 +115,51 @@ class Commit(Base):
 
     repo: Mapped[Repo] = relationship(back_populates="commits", foreign_keys=repo_id)
     document_versions: Mapped[List[DocumentVersion]] = relationship(
-        default_factory=list, back_populates="commit"
+        back_populates="commit"
     )
 
     __table_args__ = (UniqueConstraint("repo_id", "sha"),)
 
 
-# NOTE: For a Core table, we use the sqlalchemy.Column construct, not sqlalchemy.orm.mapped_column
-document_version_chunks = Table(
-    "document_version_chunks",
-    Base.metadata,
-    Column("document_version_id", ForeignKey("document_versions.id"), primary_key=True),
-    Column("chunk_id", ForeignKey("chunks.id"), primary_key=True),
-)
-
-
 class Document(Base):
     __tablename__ = "documents"
 
-    id: Mapped[int] = mapped_column(init=False, primary_key=True)
-    repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"), init=False)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"))
     path: Mapped[path]
 
     repo: Mapped[Repo] = relationship(back_populates="documents")
-    chunks: Mapped[List[Chunk]] = relationship(
-        default_factory=list, back_populates="document"
-    )
-    versions: Mapped[List[DocumentVersion]] = relationship(
-        default_factory=list, back_populates="document"
-    )
+    chunks: Mapped[List[Chunk]] = relationship(back_populates="document")
+    versions: Mapped[List[DocumentVersion]] = relationship(back_populates="document")
 
     __table_args__ = (UniqueConstraint("repo_id", "path"),)
+
+
+class DocumentVersionChunk(Base):
+    __tablename__ = "document_version_chunks"
+
+    document_version_id: Mapped[int] = mapped_column(
+        ForeignKey("document_versions.id"), primary_key=True
+    )
+    chunk_id: Mapped[int] = mapped_column(ForeignKey("chunks.id"), primary_key=True)
+
+    document_version: Mapped[DocumentVersion] = relationship(back_populates="chunks")
+    chunk: Mapped[Chunk] = relationship(back_populates="document_versions")
 
 
 class DocumentVersion(Base):
     __tablename__ = "document_versions"
 
-    id: Mapped[int] = mapped_column(init=False, primary_key=True)
-    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"), init=False)
-    commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"), init=False)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"))
+    commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"))
     text: Mapped[str]
     num_tokens: Mapped[int]
-    processed: Mapped[bool] = mapped_column(default=False)
+    processed: Mapped[bool] = mapped_column()
 
-    document: Mapped[Document] = relationship(default=None, back_populates="versions")
-    commit: Mapped[Commit] = relationship(
-        default=None, back_populates="document_versions"
-    )
-    chunks: Mapped[List[Chunk]] = relationship(
-        default_factory=list,
-        secondary=document_version_chunks,
+    document: Mapped[Document] = relationship(back_populates="versions")
+    commit: Mapped[Commit] = relationship(back_populates="document_versions")
+    chunks: Mapped[List[DocumentVersionChunk]] = relationship(
         back_populates="document_versions",
     )
 
@@ -167,19 +169,14 @@ class DocumentVersion(Base):
 class Chunk(Base):
     __tablename__ = "chunks"
 
-    id: Mapped[int] = mapped_column(init=False, primary_key=True)
-    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"), init=False)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"))
     start: Mapped[Optional[int]]
     end: Mapped[int]
     text: Mapped[str]
     embedding: Mapped[array]
 
-    document: Mapped[Document] = relationship(
-        default=None, back_populates="chunks", repr=False
-    )
-    document_versions: Mapped[List[DocumentVersion]] = relationship(
-        default_factory=list,
-        secondary=document_version_chunks,
+    document: Mapped[Document] = relationship(back_populates="chunks")
+    document_versions: Mapped[List[DocumentVersionChunk]] = relationship(
         back_populates="chunks",
-        repr=False,
     )
