@@ -8,6 +8,8 @@ from typing import List, Optional
 
 import numpy as np
 from sqlalchemy import (
+    Column,
+    Table,
     ForeignKey,
     ForeignKeyConstraint,
     LargeBinary,
@@ -129,16 +131,12 @@ class Document(Base):
     __table_args__ = (Index(None, repo_id, "path", unique=True),)
 
 
-class DocumentVersionChunk(Base):
-    __tablename__ = "document_version_chunks"
-
-    document_version_id: Mapped[int] = mapped_column(
-        ForeignKey("document_versions.id"), primary_key=True
-    )
-    chunk_id: Mapped[int] = mapped_column(ForeignKey("chunks.id"), primary_key=True)
-
-    document_version: Mapped[DocumentVersion] = relationship(back_populates="chunks")
-    chunk: Mapped[Chunk] = relationship(back_populates="document_versions")
+document_version_chunks = Table(
+    "document_version_chunks",
+    Base.metadata,
+    Column("document_version_id", ForeignKey("document_versions.id"), primary_key=True),
+    Column("chunk_id", ForeignKey("chunks.id"), primary_key=True),
+)
 
 
 class DocumentVersion(Base):
@@ -153,8 +151,9 @@ class DocumentVersion(Base):
 
     document: Mapped[Document] = relationship(back_populates="versions")
     commit: Mapped[Commit] = relationship(back_populates="document_versions")
-    chunks: Mapped[List[DocumentVersionChunk]] = relationship(
-        back_populates="document_version",
+    chunks: Mapped[List[Chunk]] = relationship(
+        secondary=document_version_chunks,
+        back_populates="document_versions",
     )
 
     __table_args__ = (Index(None, document_id, commit_id, unique=True),)
@@ -171,6 +170,7 @@ class Chunk(Base):
     embedding: Mapped[array]
 
     document: Mapped[Document] = relationship(back_populates="chunks")
-    document_versions: Mapped[List[DocumentVersionChunk]] = relationship(
-        back_populates="chunk",
+    document_versions: Mapped[List[DocumentVersion]] = relationship(
+        secondary=document_version_chunks,
+        back_populates="chunks",
     )
