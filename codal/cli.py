@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from tqdm import tqdm
 
 from .database import SessionLocal
-from .models import Chunk, Document, DocumentVersion, Org, Repo
+from .models import Chunk, Document, DocumentVersion, Org, Repo, Commit
 from .settings import MODEL_NAME, REPO_DIR
 from .version import __version__
 
@@ -104,7 +104,18 @@ def embed(repo, db: Session, head: Optional[str]):
     else:
         click.echo(f"Checking out: origin/{repo.default_branch}")
         git_repo.git.checkout(f"origin/{repo.default_branch}")
-        head = git_repo.head.commit.hexsha
+
+    git_commit = git_repo.head.commit
+
+    commit = Commit(
+        repo=repo,
+        sha=git_commit.hexsha,
+        message=str(git_commit.message),
+        author_name=git_commit.author.name,
+        author_email=git_commit.author.email,
+        committer_name=git_commit.committer.name,
+        committer_email=git_commit.committer.email,
+    )
 
     prev_head = repo.head
     repo.head = head
