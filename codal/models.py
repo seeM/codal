@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     TypeDecorator,
     UniqueConstraint,
+    Index,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing_extensions import Annotated
@@ -56,7 +57,6 @@ path = Annotated[Path, mapped_column(FilePath)]
 class Org(Base):
     __tablename__ = "orgs"
 
-    # TODO: Can we remove index on unique??
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(unique=True, index=True)
 
@@ -69,43 +69,45 @@ class Repo(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     org_id: Mapped[int] = mapped_column(ForeignKey("orgs.id"))
     name: Mapped[str]
+
     head_commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"))
+    default_branch: Mapped[str] = mapped_column()
 
     org: Mapped[Org] = relationship(back_populates="repos")
+    head_commit: Mapped[Commit] = relationship(foreign_keys=head_commit_id)
     commits: Mapped[List[Commit]] = relationship(
         back_populates="repo", foreign_keys="Commit.repo_id"
     )
     documents: Mapped[List[Document]] = relationship(back_populates="repo")
 
-    default_branch: Mapped[str] = mapped_column()
-
-    __table_args__ = (UniqueConstraint("org_id", "name"),)
+    __table_args__ = (Index("org_id", "name", unique=True),)
 
 
-class RepoHead(Base):
-    __tablename__ = "repo_heads"
+# class RepoHead(Base):
+#     __tablename__ = "repo_heads"
 
-    repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"), primary_key=True)
-    commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"))
+#     repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"), primary_key=True)
+#     commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"))
 
-    repo: Mapped[Repo] = relationship(
-        back_populates="head_commit", foreign_keys=repo_id
-    )
-    head_commit: Mapped[Commit] = relationship(
-        back_populates="repo", foreign_keys=commit_id
-    )
+#     repo: Mapped[Repo] = relationship(
+#         back_populates="head_commit", foreign_keys=repo_id
+#     )
+#     head_commit: Mapped[Commit] = relationship(
+#         back_populates="repo", foreign_keys=commit_id
+#     )
 
-    __table_args__ = (
-        UniqueConstraint("repo_id"),
-        ForeignKeyConstraint(["repo_id", "commit_id"], ["repos.id", "commits.id"]),
-    )
+#     __table_args__ = (
+#         UniqueConstraint("repo_id"),
+#         ForeignKeyConstraint(["repo_id", "commit_id"], ["repos.id", "commits.id"]),
+#     )
 
 
 class Commit(Base):
     __tablename__ = "commits"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"))  # , init=False)
+    repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"))
+
     sha: Mapped[str]
     message: Mapped[str]
     author_name: Mapped[Optional[str]]
@@ -132,7 +134,7 @@ class Document(Base):
     chunks: Mapped[List[Chunk]] = relationship(back_populates="document")
     versions: Mapped[List[DocumentVersion]] = relationship(back_populates="document")
 
-    __table_args__ = (UniqueConstraint("repo_id", "path"),)
+    __table_args__ = (Index("repo_id", "path", unique=True),)
 
 
 class DocumentVersionChunk(Base):
@@ -163,7 +165,7 @@ class DocumentVersion(Base):
         back_populates="document_versions",
     )
 
-    __table_args__ = (UniqueConstraint("document_id", "commit_id"),)
+    __table_args__ = (Index("document_id", "commit_id", unique=True),)
 
 
 class Chunk(Base):
