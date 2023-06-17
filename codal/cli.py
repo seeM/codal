@@ -6,7 +6,7 @@ import click
 import numpy as np
 import openai
 import tiktoken
-from git import Repo as GitRepo
+from git.repo import Repo as GitRepo
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -32,11 +32,11 @@ def _get_embedding(text, model=MODEL_NAME, max_attempts=5, retry_delay=1):
     text = text.replace("\n", " ")
     for attempt in range(max_attempts):
         try:
-            return openai.Embedding.create(input=[text], model=model)["data"][0][
+            return openai.Embedding.create(input=[text], model=model)["data"][0][  # type: ignore
                 "embedding"
             ]
         # TODO: Only retry on 500 error
-        except openai.error.OpenAIError as exception:
+        except openai.OpenAIError as exception:
             click.echo(f"OpenAI error: {exception}")
             if attempt < max_attempts - 1:  # No delay on last attempt, TODO: why not?
                 time.sleep(retry_delay)
@@ -113,7 +113,7 @@ def embed(repo, db: Session, head: Optional[str]):
     git_commit = git_repo.head.commit
 
     commit = db.execute(
-        select(Commit).where(Commit.repo_id == repo.id, Commit.sha == git_commit.hexsha)
+        select(Commit).where(Commit.repo == repo, Commit.sha == git_commit.hexsha)
     ).scalar_one_or_none()
     if commit is None:
         commit = Commit(
@@ -280,6 +280,7 @@ def ask(repo, question, db: Session):
     ).scalar_one_or_none()
     if repo is None:
         click.echo(f"Repo does not exist. Have you run `codal embed {repo}`?", err=True)
+        raise click.exceptions.Exit(1)
 
     # TODO: This should probably live elsewhere, maybe in embed or a separate command
     # Make the vector search index
@@ -287,8 +288,11 @@ def ask(repo, question, db: Session):
         db.execute(
             (
                 select(Chunk)
-                .join(Chunk.documents)
-                .where(Document.repo_id == repo.id, Document.head == repo.head)
+                .join(Chunk.document_versions)
+                .join(DocumentVersion.document)
+                .where(
+                    Document.repo == repo, DocumentVersion.commit == repo.head_commit
+                )
             )
         )
         .scalars()
@@ -343,19 +347,19 @@ def ask(repo, question, db: Session):
     #     ]
     # )
 
-    # Make the LLM prompt given the vector search context
-    prompt = (
-        "Given the following context and code, answer the following question. "
-        "Do not use outside context, and do not assume the user can see the provided context. "
-        "Try to be as detailed as possible and reference the components that you are looking at. "
-        "Keep in mind that these are only code snippets, and more snippets may be added during the conversation.\n\n"
-        "Do not generate code, only reference the exact code snippets that you have been provided with. "
-        "If you are going to write code, make sure to specify the language of the code. "
-        "For example, if you were writing Python, you would write the following:\n\n"
-        "```python\n"
-        "<python code goes here>\n"
-        "```\n\n"
-        "Now, here is the relevant context:\n\n"
-        f"Context: {context}"
-        ""
-    )
+    # # Make the LLM prompt given the vector search context
+    # prompt = (
+    #     "Given the following context and code, answer the following question. "
+    #     "Do not use outside context, and do not assume the user can see the provided context. "
+    #     "Try to be as detailed as possible and reference the components that you are looking at. "
+    #     "Keep in mind that these are only code snippets, and more snippets may be added during the conversation.\n\n"
+    #     "Do not generate code, only reference the exact code snippets that you have been provided with. "
+    #     "If you are going to write code, make sure to specify the language of the code. "
+    #     "For example, if you were writing Python, you would write the following:\n\n"
+    #     "```python\n"
+    #     "<python code goes here>\n"
+    #     "```\n\n"
+    #     "Now, here is the relevant context:\n\n"
+    #     f"Context: {context}"
+    #     ""
+    # )
