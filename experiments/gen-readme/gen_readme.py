@@ -1,11 +1,19 @@
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import click
 import openai
 import pathspec
 import tiktoken
+
+
+def estimate_cost(prompt: str) -> Tuple[int, float]:
+    encoder = tiktoken.encoding_for_model("gpt-4")
+    num_tokens = len(encoder.encode(prompt))
+    cost_per_token = 0.004 / 1000  # Conservative estimate
+    cost = num_tokens * cost_per_token
+    return num_tokens, cost
 
 
 def complete(prompt: str, model: str) -> str:
@@ -62,6 +70,14 @@ def summarize_text(
     if language:
         prompt += language
     prompt += f"\n{text}\n```\n\n### Summary\n\n"
+
+    num_tokens, cost = estimate_cost(prompt)
+    click.echo(f"Number of tokens: {num_tokens}", err=True)
+    click.echo(f"Estimated cost: ${cost}", err=True)
+
+    # Get confirmation from the user
+    if not click.confirm("Continue?", err=True):
+        raise click.Abort()
 
     summary = complete(prompt, model)
     return summary
@@ -184,7 +200,7 @@ def summarize(path_or_dir, model):
         else:
             repo_name = repo_dir and repo_dir.name
             for document in documents:
-                click.echo(document["path"], err=True)
+                click.echo(f"\n\n## {document['path']}\n", err=True)
                 try:
                     text = document["path"].read_text()
                 except UnicodeDecodeError:
