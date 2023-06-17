@@ -1,3 +1,4 @@
+# TODO: Maybe rename Document -> File and DocumentVersion -> Document?
 from __future__ import annotations
 
 from datetime import datetime
@@ -67,7 +68,7 @@ class Org(Base):
 class Repo(Base):
     __tablename__ = "repos"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(autoincrement="ignore_fk", primary_key=True)
     org_id: Mapped[int] = mapped_column(ForeignKey("orgs.id"))
     name: Mapped[str]
 
@@ -87,7 +88,7 @@ class Repo(Base):
         ForeignKeyConstraint(
             ["id", "head_commit_id"], ["commits.repo_id", "commits.id"]
         ),
-        Index("org_id", "name", unique=True),
+        Index(None, org_id, "name", unique=True),
     )
 
 
@@ -125,7 +126,7 @@ class Document(Base):
     chunks: Mapped[List[Chunk]] = relationship(back_populates="document")
     versions: Mapped[List[DocumentVersion]] = relationship(back_populates="document")
 
-    __table_args__ = (Index("repo_id", "path", unique=True),)
+    __table_args__ = (Index(None, repo_id, "path", unique=True),)
 
 
 class DocumentVersionChunk(Base):
@@ -148,7 +149,7 @@ class DocumentVersion(Base):
     commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"))
     text: Mapped[str]
     num_tokens: Mapped[int]
-    processed: Mapped[bool] = mapped_column()
+    processed: Mapped[bool] = mapped_column(default=False)
 
     document: Mapped[Document] = relationship(back_populates="versions")
     commit: Mapped[Commit] = relationship(back_populates="document_versions")
@@ -156,7 +157,7 @@ class DocumentVersion(Base):
         back_populates="document_version",
     )
 
-    __table_args__ = (Index("document_id", "commit_id", unique=True),)
+    __table_args__ = (Index(None, document_id, commit_id, unique=True),)
 
 
 class Chunk(Base):

@@ -79,7 +79,7 @@ def embed(repo, db: Session, head: Optional[str]):
     db.commit()
 
     repo = db.execute(
-        select(Repo).where(Repo.name == repo_name, Repo.org_id == org.id)
+        select(Repo).where(Repo.name == repo_name, Repo.org == org)
     ).scalar_one_or_none()
     if repo is None:
         repo = Repo(name=repo_name, org=org)
@@ -88,6 +88,7 @@ def embed(repo, db: Session, head: Optional[str]):
     git_url = f"https://github.com/{repo.org.name}/{repo.name}.git"
     git_dir = REPO_DIR / repo.org.name / repo.name
     git_dir.mkdir(parents=True, exist_ok=True)
+    default_branch_path = git_dir / ".codal" / "DEFAULT_BRANCH"
     if (git_dir / ".git").exists():
         click.echo(f"Fetching latest changes: {git_dir}")
         git_repo = GitRepo(git_dir)
@@ -96,14 +97,10 @@ def embed(repo, db: Session, head: Optional[str]):
     else:
         click.echo(f"Cloning repo: {git_url} -> {git_dir}")
         git_repo = GitRepo.clone_from(git_url, git_dir)
-        default_branch_path = git_dir / ".codal" / "DEFAULT_BRANCH"
         default_branch_path.parent.mkdir(parents=True, exist_ok=True)
         default_branch_path.write_text(git_repo.active_branch.name + "\n")
 
     if repo.default_branch is None:
-        default_branch_path = (
-            git_dir / ".codal" / "DEFAULT_BRANCH"
-        )  # TODO: Make property?
         repo.default_branch = default_branch_path.read_text().strip()
 
     if head is not None:
@@ -132,13 +129,12 @@ def embed(repo, db: Session, head: Optional[str]):
         )
 
     prev_head = repo.head_commit
-    repo.head_commit = commit
     db.add_all([repo, commit])
     db.commit()
 
     # Read documents from the repo
     encoder = tiktoken.encoding_for_model(MODEL_NAME)
-    documents = []
+    document_versions = []
     for path in git_dir.rglob("*"):
         if path.is_dir():
             continue
@@ -159,7 +155,7 @@ def embed(repo, db: Session, head: Optional[str]):
             # Get or create the document
             document = db.execute(
                 select(Document).where(
-                    Document.repo_id == repo.id,
+                    Document.repo == repo,
                     Document.path == path,
                 )
             ).scalar_one_or_none()
@@ -172,14 +168,14 @@ def embed(repo, db: Session, head: Optional[str]):
             # If a version does not exist for this commit, create one.
             document_version = db.execute(
                 select(DocumentVersion).where(
-                    DocumentVersion.document_id == document.id,
-                    DocumentVersion.commit == head,
+                    DocumentVersion.document == document,
+                    DocumentVersion.commit == commit,
                 )
             ).scalar_one_or_none()
             if document_version is None:
                 document_version = DocumentVersion(
                     document=document,
-                    commit=head,
+                    commit=commit,
                     text=text,
                     num_tokens=len(encoder.encode(text)),
                 )
@@ -190,7 +186,7 @@ def embed(repo, db: Session, head: Optional[str]):
             if not document_version.processed:
                 previous_document_version = db.execute(
                     select(DocumentVersion).where(
-                        DocumentVersion.document_id == document.id,
+                        DocumentVersion.document == document,
                         DocumentVersion.commit == prev_head,
                     )
                 ).scalar_one_or_none()
@@ -202,25 +198,27 @@ def embed(repo, db: Session, head: Optional[str]):
                     document_version.chunks = previous_document_version.chunks
                     document_version.processed = True
 
-            db.add(document_version)
+            db.add_all([document, document_version])
             db.commit()
 
-            documents.append(document)
+            document_versions.append(document_version)
 
-    # TODO: Continue here. Refactoring to include a DocumentVersion...
-    #       Maybe rename Document -> File/Path, and DocumentVersion -> Document?
-
-    unprocessed_documents = [
-        document for document in documents if not document.processed
+    unprocessed_document_versions = [
+        document_version
+        for document_version in document_versions
+        if not document_version.processed
     ]
 
     # Log stats about documents, tokens, and cost to process
     dollars_per_1k_tokens = 0.0004
-    num_documents = len(documents)
-    num_tokens = sum(document.num_tokens for document in documents)
-    num_unprocessed_documents = len(unprocessed_documents)
+    num_documents = len(document_versions)
+    num_tokens = sum(
+        document_version.num_tokens for document_version in document_versions
+    )
+    num_unprocessed_documents = len(unprocessed_document_versions)
     num_unprocessed_tokens = sum(
-        document.num_tokens for document in unprocessed_documents
+        document_version.num_tokens
+        for document_version in unprocessed_document_versions
     )
     click.echo(f"Documents: {num_documents}")
     click.echo(f"Documents to process: {num_unprocessed_documents}")
@@ -233,11 +231,11 @@ def embed(repo, db: Session, head: Optional[str]):
 
     # Process documents
     splitter = RecursiveCharacterTextSplitter(chunk_overlap=0, chunk_size=1000)
-    for document in tqdm(unprocessed_documents):
+    for document_version in tqdm(unprocessed_document_versions):
         chunks = []
         start = 0
         end = start
-        for chunk_num, chunk_text in enumerate(splitter.split_text(document.text)):
+        for chunk_text in splitter.split_text(document_version.text):
             end += len(chunk_text)
 
             embedding_raw = _get_embedding(chunk_text)
@@ -253,13 +251,14 @@ def embed(repo, db: Session, head: Optional[str]):
 
             start = end
 
-        document.chunks = chunks
-        document.processed = True
+        document_version.chunks = chunks
+        document_version.processed = True
 
-        db.add(document)
+        db.add(document_version)
         db.commit()
 
-    repo.head = head
+    # Finally, bump the head commit
+    repo.head_commit = commit
     db.add(repo)
     db.commit()
 
