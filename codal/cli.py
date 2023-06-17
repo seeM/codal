@@ -96,7 +96,15 @@ def embed(repo, db: Session, head: Optional[str]):
     else:
         click.echo(f"Cloning repo: {git_url} -> {git_dir}")
         git_repo = GitRepo.clone_from(git_url, git_dir)
-        repo.default_branch = git_repo.active_branch.name
+        default_branch_path = git_dir / ".codal" / "DEFAULT_BRANCH"
+        default_branch_path.parent.mkdir(parents=True, exist_ok=True)
+        default_branch_path.write_text(git_repo.active_branch.name + "\n")
+
+    if repo.default_branch is None:
+        default_branch_path = (
+            git_dir / ".codal" / "DEFAULT_BRANCH"
+        )  # TODO: Make property?
+        repo.default_branch = default_branch_path.read_text().strip()
 
     if head is not None:
         click.echo(f"Checking out: {head}")
@@ -107,26 +115,26 @@ def embed(repo, db: Session, head: Optional[str]):
 
     git_commit = git_repo.head.commit
 
-    commit = Commit(
-        repo=repo,
-        repo_id=repo.id,
-        sha=git_commit.hexsha,
-        message=str(git_commit.message),
-        author_name=git_commit.author.name,
-        author_email=git_commit.author.email,
-        committer_name=git_commit.committer.name,
-        committer_email=git_commit.committer.email,
-    )
+    commit = db.execute(
+        select(Commit).where(Commit.repo_id == repo.id, Commit.sha == git_commit.hexsha)
+    ).scalar_one_or_none()
+    if commit is None:
+        commit = Commit(
+            repo=repo,
+            sha=git_commit.hexsha,
+            message=str(git_commit.message),
+            author_name=git_commit.author.name,
+            author_email=git_commit.author.email,
+            authored_datetime=git_commit.authored_datetime,
+            committer_name=git_commit.committer.name,
+            committer_email=git_commit.committer.email,
+            committed_datetime=git_commit.committed_datetime,
+        )
 
     prev_head = repo.head_commit
     repo.head_commit = commit
-    repo.head_commit_id = commit.id
-    db.add_all([commit, repo])
+    db.add_all([repo, commit])
     db.commit()
-    print(commit.id)
-    exit()
-    # db.add(repo)
-    # db.commit()
 
     # Read documents from the repo
     encoder = tiktoken.encoding_for_model(MODEL_NAME)

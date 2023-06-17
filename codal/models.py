@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import List, Optional
@@ -70,11 +71,13 @@ class Repo(Base):
     org_id: Mapped[int] = mapped_column(ForeignKey("orgs.id"))
     name: Mapped[str]
 
-    head_commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"))
+    head_commit_id: Mapped[Optional[int]] = mapped_column(ForeignKey("commits.id"))
     default_branch: Mapped[str] = mapped_column()
 
     org: Mapped[Org] = relationship(back_populates="repos")
-    head_commit: Mapped[Commit] = relationship(foreign_keys=head_commit_id)
+    head_commit: Mapped[Commit] = relationship(
+        foreign_keys=head_commit_id, post_update=True
+    )
     commits: Mapped[List[Commit]] = relationship(
         back_populates="repo", foreign_keys="Commit.repo_id"
     )
@@ -112,8 +115,10 @@ class Commit(Base):
     message: Mapped[str]
     author_name: Mapped[Optional[str]]
     author_email: Mapped[Optional[str]]
+    authored_datetime: Mapped[datetime]
     committer_name: Mapped[Optional[str]]
     committer_email: Mapped[Optional[str]]
+    committed_datetime: Mapped[datetime]
 
     repo: Mapped[Repo] = relationship(back_populates="commits", foreign_keys=repo_id)
     document_versions: Mapped[List[DocumentVersion]] = relationship(
@@ -162,7 +167,7 @@ class DocumentVersion(Base):
     document: Mapped[Document] = relationship(back_populates="versions")
     commit: Mapped[Commit] = relationship(back_populates="document_versions")
     chunks: Mapped[List[DocumentVersionChunk]] = relationship(
-        back_populates="document_versions",
+        back_populates="document_version",
     )
 
     __table_args__ = (Index("document_id", "commit_id", unique=True),)
@@ -180,5 +185,5 @@ class Chunk(Base):
 
     document: Mapped[Document] = relationship(back_populates="chunks")
     document_versions: Mapped[List[DocumentVersionChunk]] = relationship(
-        back_populates="chunks",
+        back_populates="chunk",
     )
