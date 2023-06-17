@@ -117,8 +117,8 @@ def embed(repo, db: Session, head: Optional[str]):
         committer_email=git_commit.committer.email,
     )
 
-    prev_head = repo.head
-    repo.head = head
+    prev_head = repo.head_commit
+    repo.head_commit = commit
     db.add(repo)
     db.commit()
 

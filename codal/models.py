@@ -8,6 +8,7 @@ import numpy as np
 from sqlalchemy import (
     Column,
     ForeignKey,
+    ForeignKeyConstraint,
     LargeBinary,
     String,
     Table,
@@ -69,10 +70,13 @@ class Repo(Base):
 
     id: Mapped[int] = mapped_column(init=False, primary_key=True)
     org_id: Mapped[int] = mapped_column(ForeignKey("orgs.id"), init=False)
+    head_commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"), init=False)
     name: Mapped[str]
 
     org: Mapped[Org] = relationship(back_populates="repos")
-    head_commit: Mapped[Commit] = relationship(foreign_keys="Repo.head_commit_id")
+    head_commit: Mapped[Commit] = relationship(
+        default=None, foreign_keys=head_commit_id, post_update=True
+    )
     commits: Mapped[List[Commit]] = relationship(
         default_factory=list, back_populates="repo", foreign_keys="Commit.repo_id"
     )
@@ -81,9 +85,13 @@ class Repo(Base):
     )
 
     default_branch: Mapped[str] = mapped_column(default=None)
-    head_commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"), default=None)
 
-    __table_args__ = (UniqueConstraint("org_id", "name"),)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["id", "head_commit_id"], ["commits.repo_id", "commits.id"]
+        ),
+        UniqueConstraint("org_id", "name"),
+    )
 
 
 class Commit(Base):
@@ -98,7 +106,7 @@ class Commit(Base):
     committer_name: Mapped[Optional[str]]
     committer_email: Mapped[Optional[str]]
 
-    repo: Mapped[Repo] = relationship(back_populates="commits")
+    repo: Mapped[Repo] = relationship(back_populates="commits", foreign_keys=repo_id)
     document_versions: Mapped[List[DocumentVersion]] = relationship(
         default_factory=list, back_populates="commit"
     )
