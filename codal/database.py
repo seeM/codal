@@ -6,6 +6,8 @@ SQLALCHEMY_DATABASE_URL = "sqlite:///./codal.db"
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
 )
+# TODO: Do we need autocommit and autoflush?
+# SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 SessionLocal = sessionmaker(bind=engine)
 
 metadata = MetaData(

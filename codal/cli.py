@@ -3,9 +3,11 @@ from functools import wraps
 from typing import List, Optional, Tuple
 
 import click
+import hnswlib
 import numpy as np
 import openai
 import tiktoken
+import uvicorn
 from git.repo import Repo as GitRepo
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sqlalchemy import select
@@ -14,7 +16,7 @@ from tqdm import tqdm
 
 from .database import SessionLocal
 from .models import Chunk, Document, DocumentVersion, Org, Repo, Commit
-from .settings import MODEL_NAME, REPO_DIR
+from .settings import INDEX_DIR, MODEL_NAME, REPO_DIR
 from .version import __version__
 
 
@@ -263,20 +265,17 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     click.echo(f"Repo updated to head: {commit.sha}")
 
 
+# TODO: I don't like this architecturally... Shouldn't have to think about reindexing
 @cli.command()
 @click.argument("repo")
-@click.argument("question")
-@click.option("--num-neighbors", default=10)
 @_provide_db
-def ask(repo, question, db: Session, num_neighbors: int) -> None:
+def reindex(repo, db: Session) -> None:
     """
-    Ask a question about a GitHub repo.
+    Rebuild the vector search index for a REPO.
 
-    The repo must already have been embedded (see `codal embed`).
+    For example, to rebuild the index for the Codal repo:
 
-    For example:
-
-        codal ask seem/codal 'What dependencies does this project have?'
+        codal reindex seem/codal
     """
     repo_arg = repo
     org_name, repo_name = repo_arg.split("/")
@@ -309,17 +308,15 @@ def ask(repo, question, db: Session, num_neighbors: int) -> None:
     # TODO: Need to investigate
     chunks = [chunk for chunk in chunks if chunk.document.path.name != "LICENSE"]
 
-    # click.echo(
-    #     f"Found {len(chunks)} chunks for this repo at head: {repo.head_commit.sha}"
-    # )
+    click.echo(
+        f"Found {len(chunks)} chunks for this repo at head: {repo.head_commit.sha}"
+    )
     # click.echo(f"First chunk: {chunks[0]}")
 
     embeddings = np.array([chunk.embedding for chunk in chunks])
     chunk_ids = np.array([chunk.id for chunk in chunks])
 
-    # click.echo(f"Embeddings shape: {embeddings.shape}")
-
-    import hnswlib
+    click.echo(f"Embeddings shape: {embeddings.shape}")
 
     max_elements = embeddings.shape[0]
     dim = embeddings.shape[1]
@@ -327,12 +324,35 @@ def ask(repo, question, db: Session, num_neighbors: int) -> None:
     index.init_index(max_elements=max_elements)
     index.add_items(embeddings, chunk_ids)
 
-    # click.echo(f"Created index: {index}")
+    click.echo(f"Created index: {index}")
 
-    # TODO:
-    # index.save_index(path)
-    # index = hnswlib.Index(space="cosine", dim=dim)
-    # index.load_index(path, max_elements=new_max_elements)
+    # TODO: Safely overwrite the previous index?
+    # TODO: Make Repo property?
+    index_path = INDEX_DIR / f"{repo.org.name}-{repo.name}.bin"
+    index_path.parent.mkdir(exist_ok=True, parents=True)
+    index.save_index(str(index_path))
+
+
+# TODO: How to reuse parameter defaults like num_neighbors?
+def _ask(repo, question: str, db: Session, num_neighbors: int = 10) -> str:
+    repo_arg = repo
+    org_name, repo_name = repo_arg.split("/")
+    repo = db.execute(
+        select(Repo).join(Repo.org).where(Repo.name == repo_name, Org.name == org_name)
+    ).scalar_one_or_none()
+    if repo is None:
+        click.echo(
+            f"Repo does not exist. Have you run `codal embed {repo_arg}`?", err=True
+        )
+        raise click.exceptions.Exit(1)
+
+    # TODO: Make Repo property
+    index_path = INDEX_DIR / f"{repo.org.name}-{repo.name}.bin"
+
+    # TODO: Do we really have to store the dimension somewhere?
+    #       SQL table?
+    index = hnswlib.Index(space="cosine", dim=1536)
+    index.load_index(str(index_path))
 
     # Find the top nearest neighbours
 
@@ -385,6 +405,25 @@ def ask(repo, question, db: Session, num_neighbors: int) -> None:
     #     raise click.Abort()
 
     result = complete(prompt, "gpt-4")
+    return result
+
+
+@cli.command()
+@click.argument("repo")
+@click.argument("question")
+@click.option("--num-neighbors", default=10)
+@_provide_db
+def ask(repo, question, db: Session, num_neighbors: int) -> None:
+    """
+    Ask a question about a GitHub repo.
+
+    The repo must already have been embedded (see `codal embed`).
+
+    For example:
+
+        codal ask seem/codal 'What dependencies does this project have?'
+    """
+    _ask(repo, question, db, num_neighbors)
 
 
 def estimate_cost(prompt: str) -> Tuple[int, float]:
@@ -413,3 +452,11 @@ def complete(prompt: str, model: str) -> str:
     click.echo()
 
     return "".join(result)
+
+
+@cli.command()
+def serve():
+    """
+    Serve the Codal API.
+    """
+    uvicorn.run("codal.api:app")

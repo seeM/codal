@@ -37,6 +37,7 @@ setup(
     install_requires=[
         "alembic",
         "click",
+        "fastapi[all]",
         "GitPython",
         "hnswlib",
         "langchain",
