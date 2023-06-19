@@ -16,9 +16,10 @@ from tqdm import tqdm
 
 from . import crud
 from .database import SessionLocal
-from .models import Chunk, Document, DocumentVersion, Org, Repo, Commit
+from .models import Chunk, Document, DocumentVersion, Repo, Commit
+from .ai import get_chat_completion, get_embedding
 from .schemas import RepoUpdate
-from .settings import INDEX_DIR, MODEL_NAME, REPO_DIR
+from .settings import INDEX_DIR, EMBEDDING_MODEL_NAME, REPO_DIR
 from .version import __version__
 
 
@@ -30,23 +31,6 @@ def _provide_db(func):
             return func(*args, **kwargs)
 
     return wrapper
-
-
-def _get_embedding(text, model=MODEL_NAME, max_attempts=5, retry_delay=1) -> List[int]:
-    text = text.replace("\n", " ")
-    for attempt in range(max_attempts):
-        try:
-            return openai.Embedding.create(input=[text], model=model)["data"][0][  # type: ignore
-                "embedding"
-            ]
-        # TODO: Only retry on 500 error
-        except openai.OpenAIError as exception:
-            click.echo(f"OpenAI error: {exception}")
-            if attempt < max_attempts - 1:  # No delay on last attempt, TODO: why not?
-                time.sleep(retry_delay)
-            else:
-                raise
-    raise Exception("Failed to get embeddings after max attempts")
 
 
 @click.group()
@@ -138,7 +122,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     db.commit()
 
     # Read documents from the repo
-    encoder = tiktoken.encoding_for_model(MODEL_NAME)
+    encoder = tiktoken.encoding_for_model(EMBEDDING_MODEL_NAME)
     document_versions = []
     for path in git_dir.rglob("*"):
         if path.is_dir():
@@ -237,8 +221,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         for chunk_text in splitter.split_text(document_version.text):
             end += len(chunk_text)
 
-            embedding_raw = _get_embedding(chunk_text)
-            embedding = np.array(embedding_raw)
+            embedding = get_embedding(chunk_text)
             chunk = Chunk(
                 document=document_version.document,
                 start=start,
@@ -349,14 +332,11 @@ def _ask(repo, question: str, db: Session, num_neighbors=10, debug=False) -> str
 
     # Find the top nearest neighbours
 
-    # TODO: Customize k
-    query = np.array(_get_embedding(question))
-    nn_ids, distances = index.knn_query(query, k=num_neighbors)
+    query = get_embedding(question)
+    nn_ids, _ = index.knn_query(query, k=num_neighbors)
 
     # Elements have to be Python ints (not numpy ints) else the sqlalchemy query below returns empty
     nn_ids = [int(id) for id in nn_ids[0]]
-
-    # click.echo(f"Found knn: {nn_ids}, distances: {distances[0]}")
 
     nn_chunks = db.execute(select(Chunk).where(Chunk.id.in_(nn_ids))).scalars().all()
 
@@ -388,7 +368,7 @@ def _ask(repo, question: str, db: Session, num_neighbors=10, debug=False) -> str
         click.echo(f"Nearest neighbours: {nn_paths}", err=True)
         click.echo(prompt, err=True)
 
-    num_tokens, cost = estimate_cost(prompt)
+    num_tokens, cost = _estimate_cost(prompt)
     if num_tokens > 5000:
         click.echo(f"Unexpectedly high number of tokens: {num_tokens}", err=True)
         raise click.exceptions.Exit(1)
@@ -400,7 +380,7 @@ def _ask(repo, question: str, db: Session, num_neighbors=10, debug=False) -> str
     # if not click.confirm("Continue?", err=True):
     #     raise click.Abort()
 
-    result = complete(prompt, "gpt-4")
+    result = _complete(prompt, "gpt-4")
     return result
 
 
@@ -423,25 +403,19 @@ def ask(repo, question, db: Session, num_neighbors: int, debug: bool) -> None:
     _ask(repo, question, db, num_neighbors, debug)
 
 
-def estimate_cost(prompt: str) -> Tuple[int, float]:
+def _estimate_cost(prompt: str) -> Tuple[int, float]:
     encoder = tiktoken.encoding_for_model("gpt-4")
     num_tokens = len(encoder.encode(prompt))
+    # TODO: More accurate estimate
     cost_per_token = 0.004 / 1000  # Conservative estimate
     cost = num_tokens * cost_per_token
     return num_tokens, cost
 
 
-def complete(prompt: str, model: str) -> str:
+def _complete(prompt: str, model: str) -> str:
     result = []
     content = None
-    for chunk in openai.ChatCompletion.create(
-        model=model,
-        messages=[
-            {"role": "user", "content": prompt},
-        ],
-        stream=True,
-    ):
-        content = chunk.choices[0].get("delta", {}).get("content")  # type: ignore
+    for content in get_chat_completion(prompt, model=model):
         if content is not None:
             result.append(content)
             click.echo(content, nl=False)
