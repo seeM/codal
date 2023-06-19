@@ -14,8 +14,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
+from . import crud
 from .database import SessionLocal
 from .models import Chunk, Document, DocumentVersion, Org, Repo, Commit
+from .schemas import RepoUpdate
 from .settings import INDEX_DIR, MODEL_NAME, REPO_DIR
 from .version import __version__
 
@@ -61,30 +63,23 @@ def cli() -> None:
 @_provide_db
 def embed(repo, db: Session, head: Optional[str]) -> None:
     """
-    Embed a GitHub repo.
+    Embed a GitHub REPO.
 
-    This includes downloading the repo, splitting each document into chunks, and embedding those
-    chunks.
+    The first run clones the repo, splits each document into chunks, embeds those, and builds the
+    vector search index.
+
+    Subsequent runs pull the latest changes, embed any new chunks, and update the index.
 
     For example, to embed the Codal repo:
 
         codal embed seem/codal
     """
-    # Create the organization and repo
-    org_name, repo_name = repo.split("/")
+    repo_arg = repo
 
-    org = db.execute(select(Org).where(Org.name == org_name)).scalar_one_or_none()
-    if org is None:
-        org = Org(name=org_name)
-        db.add(org)
-
-    db.commit()
-
-    repo = db.execute(
-        select(Repo).where(Repo.name == repo_name, Repo.org == org)
-    ).scalar_one_or_none()
-    if repo is None:
-        repo = Repo(name=repo_name, org=org)
+    # Get or create the organization and repo
+    org_name, repo_name = repo_arg.split("/")
+    org = crud.org.get_or_create(db, name=org_name)
+    repo = crud.repo.get_or_create(db, org_id=org.id, name=repo_name)
 
     # Clone or pull the repo
     git_url = f"https://github.com/{repo.org.name}/{repo.name}.git"
@@ -102,21 +97,25 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         default_branch_path.parent.mkdir(parents=True, exist_ok=True)
         default_branch_path.write_text(git_repo.active_branch.name + "\n")
 
+    # Add the default branch on the first run
     if repo.default_branch is None:
-        repo.default_branch = default_branch_path.read_text().strip()
+        default_branch = default_branch_path.read_text().strip()
+        repo = crud.repo.update(
+            db, db_obj=repo, obj_in=RepoUpdate(default_branch=default_branch)
+        )
 
-    if head is not None:
-        click.echo(f"Checking out: {head}")
-        git_repo.git.checkout(head)
-    else:
-        click.echo(f"Checking out: origin/{repo.default_branch}")
-        git_repo.git.checkout(f"origin/{repo.default_branch}")
+    assert repo.default_branch is not None, "Default branch not set"
 
-    git_commit = git_repo.head.commit
+    if head is None:
+        head = f"origin/{repo.default_branch}"
+
+    click.echo(f"Checking out: {head}")
+    git_repo.git.checkout(head)
 
     db.add(repo)
     db.commit()
 
+    git_commit = git_repo.head.commit
     commit = db.execute(
         select(Commit).where(Commit.repo == repo, Commit.sha == git_commit.hexsha)
     ).scalar_one_or_none()
@@ -265,10 +264,17 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     click.echo(f"Repo updated to head: {commit.sha}")
 
 
-# TODO: I don't like this architecturally... Shouldn't have to think about reindexing
-@cli.command()
-@click.argument("repo")
-@_provide_db
+def _get_repo_or_raise(db: Session, org_and_repo: str) -> Repo:
+    org_name, repo_name = org_and_repo.split("/")
+    repo = crud.repo.get_by_name(db, org_name=org_name, name=repo_name)
+    if repo is None:
+        click.echo(
+            f"Repo does not exist. Have you run `codal embed {org_and_repo}`?", err=True
+        )
+        raise click.exceptions.Exit(1)
+    return repo
+
+
 def reindex(repo, db: Session) -> None:
     """
     Rebuild the vector search index for a REPO.
@@ -277,16 +283,7 @@ def reindex(repo, db: Session) -> None:
 
         codal reindex seem/codal
     """
-    repo_arg = repo
-    org_name, repo_name = repo_arg.split("/")
-    repo = db.execute(
-        select(Repo).join(Repo.org).where(Repo.name == repo_name, Org.name == org_name)
-    ).scalar_one_or_none()
-    if repo is None:
-        click.echo(
-            f"Repo does not exist. Have you run `codal embed {repo_arg}`?", err=True
-        )
-        raise click.exceptions.Exit(1)
+    repo = _get_repo_or_raise(db, repo)
 
     # TODO: This should probably live elsewhere, maybe in embed or a separate command
     # Make the vector search index
@@ -334,17 +331,10 @@ def reindex(repo, db: Session) -> None:
 
 
 # TODO: How to reuse parameter defaults like num_neighbors?
-def _ask(repo, question: str, db: Session, num_neighbors: int = 10) -> str:
+def _ask(repo, question: str, db: Session, num_neighbors=10, debug=False) -> str:
     repo_arg = repo
-    org_name, repo_name = repo_arg.split("/")
-    repo = db.execute(
-        select(Repo).join(Repo.org).where(Repo.name == repo_name, Org.name == org_name)
-    ).scalar_one_or_none()
-    if repo is None:
-        click.echo(
-            f"Repo does not exist. Have you run `codal embed {repo_arg}`?", err=True
-        )
-        raise click.exceptions.Exit(1)
+
+    repo = _get_repo_or_raise(db, repo)
 
     # TODO: Make Repo property
     index_path = INDEX_DIR / f"{repo.org.name}-{repo.name}.bin"
@@ -390,7 +380,10 @@ def _ask(repo, question: str, db: Session, num_neighbors: int = 10) -> str:
         "## Answer\n\n"
     )
 
-    # click.echo(prompt, err=True)
+    if debug:
+        nn_paths = [str(chunk.document.path) for chunk in nn_chunks]
+        click.echo(f"Nearest neighbours: {nn_paths}", err=True)
+        click.echo(prompt, err=True)
 
     num_tokens, cost = estimate_cost(prompt)
     if num_tokens > 5000:
@@ -412,8 +405,9 @@ def _ask(repo, question: str, db: Session, num_neighbors: int = 10) -> str:
 @click.argument("repo")
 @click.argument("question")
 @click.option("--num-neighbors", default=10)
+@click.option("--debug", is_flag=True)
 @_provide_db
-def ask(repo, question, db: Session, num_neighbors: int) -> None:
+def ask(repo, question, db: Session, num_neighbors: int, debug: bool) -> None:
     """
     Ask a question about a GitHub repo.
 
@@ -423,7 +417,7 @@ def ask(repo, question, db: Session, num_neighbors: int) -> None:
 
         codal ask seem/codal 'What dependencies does this project have?'
     """
-    _ask(repo, question, db, num_neighbors)
+    _ask(repo, question, db, num_neighbors, debug)
 
 
 def estimate_cost(prompt: str) -> Tuple[int, float]:
