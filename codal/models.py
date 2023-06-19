@@ -75,7 +75,7 @@ class Repo(Base):
     name: Mapped[str]
 
     head_commit_id: Mapped[Optional[int]] = mapped_column(ForeignKey("commits.id"))
-    default_branch: Mapped[str] = mapped_column()
+    default_branch: Mapped[Optional[str]] = mapped_column()
 
     org: Mapped[Org] = relationship(back_populates="repos")
     head_commit: Mapped[Commit] = relationship(
