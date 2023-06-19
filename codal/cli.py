@@ -46,6 +46,7 @@ def _get_embedding(text, model=MODEL_NAME, max_attempts=5, retry_delay=1) -> Lis
                 time.sleep(retry_delay)
             else:
                 raise
+    raise Exception("Failed to get embeddings after max attempts")
 
 
 @click.group()
@@ -261,6 +262,8 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     db.add(repo)
     db.commit()
 
+    reindex(repo, db)
+
     click.echo(f"Repo updated to head: {commit.sha}")
 
 
@@ -275,7 +278,7 @@ def _get_repo_or_raise(db: Session, org_and_repo: str) -> Repo:
     return repo
 
 
-def reindex(repo, db: Session) -> None:
+def reindex(repo: Repo, db: Session) -> None:
     """
     Rebuild the vector search index for a REPO.
 
@@ -283,8 +286,6 @@ def reindex(repo, db: Session) -> None:
 
         codal reindex seem/codal
     """
-    repo = _get_repo_or_raise(db, repo)
-
     # TODO: This should probably live elsewhere, maybe in embed or a separate command
     # Make the vector search index
     chunks = (
@@ -342,6 +343,11 @@ def _ask(repo, question: str, db: Session, num_neighbors=10, debug=False) -> str
     # TODO: Do we really have to store the dimension somewhere?
     #       SQL table?
     index = hnswlib.Index(space="cosine", dim=1536)
+    if not index_path.is_file():
+        click.echo(
+            f"Index does not exist. Have you run `codal embed {repo_arg}`?", err=True
+        )
+        raise click.exceptions.Exit(1)
     index.load_index(str(index_path))
 
     # Find the top nearest neighbours
