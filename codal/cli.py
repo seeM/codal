@@ -278,15 +278,10 @@ def _get_repo_or_raise(db: Session, org_and_repo: str) -> Repo:
     return repo
 
 
-def reindex(repo: Repo, db: Session) -> None:
+def reindex(repo: Repo, db: Session) -> hnswlib.Index:
     """
-    Rebuild the vector search index for a REPO.
-
-    For example, to rebuild the index for the Codal repo:
-
-        codal reindex seem/codal
+    Rebuild the vector search index for a repo.
     """
-    # TODO: This should probably live elsewhere, maybe in embed or a separate command
     # Make the vector search index
     chunks = (
         db.execute(
@@ -303,13 +298,14 @@ def reindex(repo: Repo, db: Session) -> None:
         .all()
     )
 
-    # TODO: Need to investigate
+    # TODO: Need to investigate, but I found in tests that LICENSE always appears at the top of
+    #       my search results. I suspect because it's in English and is therefore the most similar
+    #       to the query. For now, just remove it from the index.
     chunks = [chunk for chunk in chunks if chunk.document.path.name != "LICENSE"]
 
     click.echo(
         f"Found {len(chunks)} chunks for this repo at head: {repo.head_commit.sha}"
     )
-    # click.echo(f"First chunk: {chunks[0]}")
 
     embeddings = np.array([chunk.embedding for chunk in chunks])
     chunk_ids = np.array([chunk.id for chunk in chunks])
@@ -329,6 +325,7 @@ def reindex(repo: Repo, db: Session) -> None:
     index_path = INDEX_DIR / f"{repo.org.name}-{repo.name}.bin"
     index_path.parent.mkdir(exist_ok=True, parents=True)
     index.save_index(str(index_path))
+    return index
 
 
 # TODO: How to reuse parameter defaults like num_neighbors?
