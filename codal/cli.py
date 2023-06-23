@@ -1,5 +1,6 @@
 from functools import wraps
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import Any, Iterable, Optional, Sequence, Tuple, TypeVar
 
 import click
 import hnswlib
@@ -7,6 +8,7 @@ import numpy as np
 import tiktoken
 import uvicorn
 from git.repo import Repo as GitRepo
+from git.exc import GitCommandError
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sqlalchemy.orm import Session
 from tqdm import tqdm
@@ -26,6 +28,35 @@ from .schemas import (
 )
 from .settings import INDEX_DIR, EMBEDDING_MODEL_NAME, REPO_DIR
 from .version import __version__
+
+
+def pretty_print(obj: Any):
+    if isinstance(obj, Path):
+        return str(obj).replace(str(Path.home()), "~")
+    return str(obj)
+
+
+def echo_progress(prefix: str, current: int, total: int) -> None:
+    percentage = f"{100 * current / total:.0f}%"
+    template = prefix + ": {percentage} ({current}/{total})"
+    message = template.format(percentage=percentage, current=current, total=total)
+    if current < total:
+        message += "\r"
+        nl = False
+    else:
+        message += ", done"
+        nl = True
+    click.echo(message, err=True, nl=nl)
+
+
+T = TypeVar("T")
+
+
+def progress(it: Sequence[T], prefix: str) -> Iterable[T]:
+    total = len(it)
+    for current, obj in enumerate(it):
+        echo_progress(prefix, current + 1, total)
+        yield obj
 
 
 def _provide_db(func):
@@ -62,29 +93,34 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         codal embed seem/codal
     """
     repo_arg = repo
+    org_name, repo_name = repo_arg.split("/")
+
+    # Clone or pull the repo
+    git_url = f"https://github.com/{org_name}/{repo_name}.git"
+    git_dir = REPO_DIR / org_name / repo_name
+    default_branch_path = git_dir / ".codal" / "DEFAULT_BRANCH"
+    if (git_dir / ".git").exists():
+        git_repo = GitRepo(git_dir)
+        origin = git_repo.remote(name="origin")
+        click.echo(f"Fetching latest changes: {git_dir}", err=True)
+        origin.fetch()
+    else:
+        click.echo(f"Cloning repo: {git_url} -> {pretty_print(git_dir)}", err=True)
+        try:
+            git_repo = GitRepo.clone_from(git_url, git_dir)
+        except GitCommandError as exception:
+            if "remote: Repository not found." in exception.stderr:
+                raise click.exceptions.ClickException(f"Repo not found: {git_url}")
+            raise
+
+        # Store the default branch as a file so that we can recover it if the db is lost
+        default_branch_path.parent.mkdir(parents=True, exist_ok=True)
+        default_branch_path.write_text(git_repo.active_branch.name + "\n")
 
     # Get or create the organization and repo
     org_name, repo_name = repo_arg.split("/")
     org = crud.org.get_or_create(db, OrgCreate(name=org_name))
     repo = crud.repo.get_or_create(db, RepoCreate(name=repo_name, org_id=org.id))
-
-    # Clone or pull the repo
-    git_url = f"https://github.com/{repo.org.name}/{repo.name}.git"
-    git_dir = REPO_DIR / repo.org.name / repo.name
-    git_dir.mkdir(parents=True, exist_ok=True)
-    default_branch_path = git_dir / ".codal" / "DEFAULT_BRANCH"
-    if (git_dir / ".git").exists():
-        click.echo(f"Fetching latest changes: {git_dir}")
-        git_repo = GitRepo(git_dir)
-        origin = git_repo.remote(name="origin")
-        fetch_info = origin.fetch()
-    else:
-        click.echo(f"Cloning repo: {git_url} -> {git_dir}")
-        git_repo = GitRepo.clone_from(git_url, git_dir)
-
-        # Store the default branch as a file so that we can recover it if the db is lost
-        default_branch_path.parent.mkdir(parents=True, exist_ok=True)
-        default_branch_path.write_text(git_repo.active_branch.name + "\n")
 
     # Update the default branch
     if repo.default_branch is None:
@@ -93,7 +129,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
             db, db_obj=repo, obj_in=RepoUpdate(default_branch=default_branch)
         )
 
-    assert repo.default_branch is not None, "Default branch not set"
+    assert repo.default_branch is not None
 
     if head is None:
         head = f"origin/{repo.default_branch}"
@@ -122,7 +158,10 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     # Read documents from the repo
     encoder = tiktoken.encoding_for_model(EMBEDDING_MODEL_NAME)
     document_versions = []
-    for path in git_dir.rglob("*"):
+    for path in progress(
+        list(git_dir.rglob("*")),
+        "Finding file changes",
+    ):
         if path.is_dir():
             continue
         if ".git" in path.parts:
@@ -198,7 +237,13 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
 
     # Process documents
     splitter = RecursiveCharacterTextSplitter(chunk_overlap=0, chunk_size=1000)
-    for document_version in tqdm(unprocessed_document_versions):
+    num_processed_tokens = 0
+    echo_progress(
+        "Embedding changed files, tokens embedded",
+        num_processed_tokens,
+        num_unprocessed_tokens,
+    )
+    for document_version in unprocessed_document_versions:
         chunks = []
         start = 0
         end = start
@@ -218,9 +263,18 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
 
             start = end
 
+            num_processed_tokens += len(encoder.encode(chunk_text))
+            echo_progress(
+                "Embedding changed files, tokens processed",
+                num_processed_tokens,
+                num_unprocessed_tokens,
+            )
+
         crud.document_version.update(
             db, document_version, DocumentVersionUpdate(chunks=chunks, processed=True)
         )
+
+    print(num_processed_tokens, num_unprocessed_tokens)
 
     # Finally, bump the head commit
     crud.repo.update(db, repo, RepoUpdate(head_commit_id=commit.id))
