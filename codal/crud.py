@@ -10,7 +10,7 @@ from codal.models import Repo
 from codal.schemas import RepoCreate
 
 from .database import Base
-from .models import Org, Repo, Commit, Document
+from .models import Org, Repo, Commit, Document, DocumentVersion
 from .schemas import (
     OrgCreate,
     OrgUpdate,
@@ -20,6 +20,8 @@ from .schemas import (
     CommitUpdate,
     DocumentCreate,
     DocumentUpdate,
+    DocumentVersionCreate,
+    DocumentVersionUpdate,
 )
 
 
@@ -116,7 +118,33 @@ class CRUDDocument(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
         return self.create(db, obj_in=obj_in)
 
 
+class CRUDDocumentVersion(
+    CRUDBase[DocumentVersion, DocumentVersionCreate, DocumentVersionUpdate]
+):
+    def get(
+        self, db: Session, *, document_id: int, commit_id: int
+    ) -> Optional[DocumentVersion]:
+        document_version = db.execute(
+            select(DocumentVersion).where(
+                DocumentVersion.document_id == document_id,
+                DocumentVersion.commit_id == commit_id,
+            )
+        ).scalar_one_or_none()
+        return document_version
+
+    def get_or_create(
+        self, db: Session, obj_in: DocumentVersionCreate
+    ) -> DocumentVersion:
+        document_version = self.get(
+            db, document_id=obj_in.document_id, commit_id=obj_in.commit_id
+        )
+        if document_version:
+            return document_version
+        return self.create(db, obj_in=obj_in)
+
+
 org = CRUDOrg(Org)
 repo = CRUDRepo(Repo)
 commit = CRUDCommit(Commit)
 document = CRUDDocument(Document)
+document_version = CRUDDocumentVersion(DocumentVersion)

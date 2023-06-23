@@ -16,7 +16,15 @@ from . import crud
 from .database import SessionLocal
 from .models import Chunk, Document, DocumentVersion, Repo
 from .ai import get_chat_completion, get_embedding
-from .schemas import CommitCreate, DocumentCreate, OrgCreate, RepoCreate, RepoUpdate
+from .schemas import (
+    CommitCreate,
+    DocumentCreate,
+    DocumentVersionCreate,
+    DocumentVersionUpdate,
+    OrgCreate,
+    RepoCreate,
+    RepoUpdate,
+)
 from .settings import INDEX_DIR, EMBEDDING_MODEL_NAME, REPO_DIR
 from .version import __version__
 
@@ -135,46 +143,40 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
 
             path = path.relative_to(git_dir)
 
-            # Get or create the document
+            # Get or create the document and version
             document = crud.document.get_or_create(
-                db, DocumentCreate(repo_id=repo.id, path=path)  # TODO: path=str(path))
+                db, DocumentCreate(repo_id=repo.id, path=path)
             )
-
-            # If a version does not exist for this commit, create one.
-            document_version = db.execute(
-                select(DocumentVersion).where(
-                    DocumentVersion.document == document,
-                    DocumentVersion.commit == commit,
-                )
-            ).scalar_one_or_none()
-            if document_version is None:
-                document_version = DocumentVersion(
-                    document=document,
-                    commit=commit,
+            document_version = crud.document_version.get_or_create(
+                db,
+                DocumentVersionCreate(
+                    document_id=document.id,
+                    commit_id=commit.id,
                     text=text,
                     num_tokens=len(encoder.encode(text)),
-                )
-            else:
-                assert document_version.text == text
+                ),
+            )
 
             # Use the chunks from the previous head, if we can.
             if not document_version.processed:
-                previous_document_version = db.execute(
-                    select(DocumentVersion).where(
-                        DocumentVersion.document == document,
-                        DocumentVersion.commit == prev_head,
-                    )
-                ).scalar_one_or_none()
+                previous_document_version = crud.document_version.get(
+                    db,
+                    document_id=document.id,
+                    commit_id=prev_head.id,
+                )
                 if (
                     previous_document_version is not None
                     and previous_document_version.processed
                     and document_version.text == previous_document_version.text
                 ):
-                    document_version.chunks = previous_document_version.chunks
-                    document_version.processed = True
-
-            db.add_all([document, document_version])
-            db.commit()
+                    crud.document_version.update(
+                        db,
+                        document_version,
+                        DocumentVersionUpdate(
+                            chunks=previous_document_version.chunks,
+                            processed=True,
+                        ),
+                    )
 
             document_versions.append(document_version)
 
@@ -220,11 +222,9 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
 
             start = end
 
-        document_version.chunks = chunks
-        document_version.processed = True
-
-        db.add(document_version)
-        db.commit()
+        crud.document_version.update(
+            db, document_version, DocumentVersionUpdate(chunks=chunks, processed=True)
+        )
 
     # Finally, bump the head commit
     crud.repo.update(db, repo, RepoUpdate(head_commit_id=commit.id))
