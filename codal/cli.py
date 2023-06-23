@@ -228,18 +228,19 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         document_version.num_tokens
         for document_version in unprocessed_document_versions
     )
-    click.echo(f"Documents to process: {num_unprocessed_documents}")
-    click.echo(f"Tokens to process: {num_unprocessed_tokens}")
+    click.echo(f"  Documents changed: {num_unprocessed_documents}")
+    click.echo(f"  Tokens to embed: {num_unprocessed_tokens}")
     click.echo(
-        f"Estimated price: ${dollars_per_1k_tokens * num_unprocessed_tokens / 1000}"
+        f"  Estimated price: ${dollars_per_1k_tokens * num_unprocessed_tokens / 1000}"
     )
     # TODO: Estimated time
 
     # Process documents
     splitter = RecursiveCharacterTextSplitter(chunk_overlap=0, chunk_size=1000)
     num_processed_tokens = 0
+    embed_message = "Embedding changed files, tokens embedded"
     echo_progress(
-        "Embedding changed files, tokens embedded",
+        embed_message,
         num_processed_tokens,
         num_unprocessed_tokens,
     )
@@ -277,7 +278,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     # NOTE: I'm not sure why chunk tokens don't add up to document version tokens.
     #       Maybe because of the way we split the text e.g. stripping chunks?
     echo_progress(
-        "Embedding changed files, tokens processed",
+        embed_message,
         num_unprocessed_tokens,
         num_unprocessed_tokens,
     )
@@ -287,7 +288,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
 
     reindex(repo, db)
 
-    click.echo(f"Repo updated to head: {commit.sha}")
+    click.echo(f"Repo updated to head: {commit.sha}", err=True)
 
 
 def _get_repo_or_raise(db: Session, org_and_repo: str) -> Repo:
