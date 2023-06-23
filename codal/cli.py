@@ -11,7 +11,6 @@ from git.repo import Repo as GitRepo
 from git.exc import GitCommandError
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sqlalchemy.orm import Session
-from tqdm import tqdm
 
 from . import crud
 from .database import SessionLocal
@@ -37,6 +36,8 @@ def pretty_print(obj: Any):
 
 
 def echo_progress(prefix: str, current: int, total: int) -> None:
+    if total == 0:
+        return
     percentage = f"{100 * current / total:.0f}%"
     template = prefix + ": {percentage} ({current}/{total})"
     message = template.format(percentage=percentage, current=current, total=total)
@@ -134,8 +135,9 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     if head is None:
         head = f"origin/{repo.default_branch}"
 
-    click.echo(f"Checking out: {head}")
-    git_repo.git.checkout(head)
+    if git_repo.head.commit != git_repo.commit(head):
+        click.echo(f"Checking out: {head}")
+        git_repo.git.checkout(head)
 
     git_commit = git_repo.head.commit
     commit = crud.commit.get_or_create(
@@ -160,7 +162,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     document_versions = []
     for path in progress(
         list(git_dir.rglob("*")),
-        "Finding file changes",
+        "Checking files for changes",
     ):
         if path.is_dir():
             continue
@@ -228,17 +230,16 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         document_version.num_tokens
         for document_version in unprocessed_document_versions
     )
-    click.echo(f"  Documents changed: {num_unprocessed_documents}")
-    click.echo(f"  Tokens to embed: {num_unprocessed_tokens}")
+    estimated_cost = dollars_per_1k_tokens * num_unprocessed_tokens / 1000
     click.echo(
-        f"  Estimated price: ${dollars_per_1k_tokens * num_unprocessed_tokens / 1000}"
+        f" {num_unprocessed_documents} file(s) changed, {num_unprocessed_tokens} tokens to embed, ${estimated_cost:.3f} estimated cost"
     )
     # TODO: Estimated time
 
     # Process documents
     splitter = RecursiveCharacterTextSplitter(chunk_overlap=0, chunk_size=1000)
     num_processed_tokens = 0
-    embed_message = "Embedding changed files, tokens embedded"
+    embed_message = "Embedding tokens"
     echo_progress(
         embed_message,
         num_processed_tokens,
@@ -277,18 +278,19 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
 
     # NOTE: I'm not sure why chunk tokens don't add up to document version tokens.
     #       Maybe because of the way we split the text e.g. stripping chunks?
-    echo_progress(
-        embed_message,
-        num_unprocessed_tokens,
-        num_unprocessed_tokens,
-    )
+    if num_processed_tokens != num_unprocessed_tokens:
+        echo_progress(
+            embed_message,
+            num_unprocessed_tokens,
+            num_unprocessed_tokens,
+        )
 
     # Finally, bump the head commit
-    crud.repo.update(db, repo, RepoUpdate(head_commit_id=commit.id))
+    if repo.head_commit != commit:
+        crud.repo.update(db, repo, RepoUpdate(head_commit_id=commit.id))
+        click.echo(f"Repo head updated: {commit.sha[:7]}", err=True)
 
     reindex(repo, db)
-
-    click.echo(f"Repo updated to head: {commit.sha}", err=True)
 
 
 def _get_repo_or_raise(db: Session, org_and_repo: str) -> Repo:
@@ -459,3 +461,34 @@ def serve():
     Serve the Codal API.
     """
     uvicorn.run("codal.api:app")
+
+
+@cli.command()
+@_provide_db
+def check(db: Session):
+    """
+    Check that the database is in a consistent state.
+    """
+    from sqlalchemy import select
+
+    from .models import DocumentVersion
+
+    document_versions = (
+        db.execute(
+            select(DocumentVersion).where(
+                DocumentVersion.chunks == None, DocumentVersion.processed == True
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    if document_versions:
+        click.echo(
+            f"Found {len(document_versions)} processed document versions with no chunks, resetting processed to false",
+            err=True,
+        )
+        for document_version in document_versions:
+            crud.document_version.update(
+                db, document_version, DocumentVersionUpdate(processed=False)
+            )

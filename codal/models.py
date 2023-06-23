@@ -158,6 +158,9 @@ class DocumentVersion(Base):
 
     __table_args__ = (Index(None, document_id, commit_id, unique=True),)
 
+    def __repr__(self) -> str:
+        return f"<{self.__class__.__name__} {self.document.path} {self.commit.sha[:7]}>"
+
 
 class Chunk(Base):
     __tablename__ = "chunks"

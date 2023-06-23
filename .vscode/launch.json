@@ -11,6 +11,14 @@
             "module": "codal",
             "args": ["embed", "seem/codal"],
             "justMyCode": false
+        },
+        {
+            "name": "Codal: Check",
+            "type": "python",
+            "request": "launch",
+            "module": "codal",
+            "args": ["check"],
+            "justMyCode": false
         }
     ]
 }

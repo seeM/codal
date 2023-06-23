@@ -45,7 +45,6 @@ setup(
         "openai",
         "SQLAlchemy",
         "tiktoken",
-        "tqdm",
         "typing_extensions",
     ],
     extras_require={"test": ["pytest", "cogapp", "types-tqdm"]},
