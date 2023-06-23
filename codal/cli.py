@@ -47,7 +47,7 @@ def cli() -> None:
     pass
 
 
-@cli.command()
+@cli.command(no_args_is_help=True)
 @click.argument("repo")
 @click.option("--head", help="Commit hash to embed.")
 @_provide_db
@@ -354,7 +354,7 @@ def _ask(repo, question: str, db: Session, num_neighbors=10, debug=False) -> str
     return result
 
 
-@cli.command()
+@cli.command(no_args_is_help=True)
 @click.argument("repo")
 @click.argument("question")
 @click.option("--num-neighbors", default=10)
@@ -395,7 +395,7 @@ def _complete(prompt: str, model: str) -> str:
     return "".join(result)
 
 
-@cli.command()
+@cli.command(no_args_is_help=True)
 def serve():
     """
     Serve the Codal API.
