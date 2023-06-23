@@ -47,7 +47,7 @@ def cli() -> None:
     pass
 
 
-@cli.command(no_args_is_help=True)
+@cli.command()
 @click.argument("repo")
 @click.option("--head", help="Commit hash to embed.")
 @_provide_db
@@ -55,12 +55,9 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     """
     Embed a GitHub REPO.
 
-    The first run clones the repo, splits each document into chunks, embeds those, and builds the
-    vector search index.
+    The first run clones the repo. Subsequent runs pull the latest changes.
 
-    Subsequent runs pull the latest changes, embed any new chunks, and update the index.
-
-    For example, to embed the Codal repo:
+    Example:
 
         codal embed seem/codal
     """
@@ -80,7 +77,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         click.echo(f"Fetching latest changes: {git_dir}")
         git_repo = GitRepo(git_dir)
         origin = git_repo.remote(name="origin")
-        origin.fetch()
+        fetch_info = origin.fetch()
     else:
         click.echo(f"Cloning repo: {git_url} -> {git_dir}")
         git_repo = GitRepo.clone_from(git_url, git_dir)
@@ -354,7 +351,7 @@ def _ask(repo, question: str, db: Session, num_neighbors=10, debug=False) -> str
     return result
 
 
-@cli.command(no_args_is_help=True)
+@cli.command()
 @click.argument("repo")
 @click.argument("question")
 @click.option("--num-neighbors", default=10)
@@ -395,7 +392,7 @@ def _complete(prompt: str, model: str) -> str:
     return "".join(result)
 
 
-@cli.command(no_args_is_help=True)
+@cli.command()
 def serve():
     """
     Serve the Codal API.
