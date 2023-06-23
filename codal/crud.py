@@ -64,28 +64,19 @@ class CRUDOrg(CRUDBase[Org, OrgCreate, OrgUpdate]):
 
 
 class CRUDRepo(CRUDBase[Repo, RepoCreate, RepoUpdate]):
-    def get(self, db: Session, *, org_id: int, name: str) -> Optional[Repo]:
-        repo = db.execute(
-            select(Repo).where(Repo.org_id == org_id, Repo.name == name)
-        ).scalar_one_or_none()
-        return repo
-
-    def get_by_name(self, db: Session, *, org_name: str, name: str) -> Optional[Repo]:
+    def get(self, db: Session, *, org_name: str, name: str) -> Optional[Repo]:
         repo = db.execute(
             select(Repo).join(Org).where(Org.name == org_name, Repo.name == name)
         ).scalar_one_or_none()
         return repo
 
     def get_or_create(self, db: Session, *, org_id: int, name: str) -> Repo:
-        repo = self.get(db, org_id=org_id, name=name)
+        repo = db.execute(
+            select(Repo).where(Repo.org_id == org_id, Repo.name == name)
+        ).scalar_one_or_none()
         if repo:
             return repo
         return self.create(db, obj_in=RepoCreate(org_id=org_id, name=name))
-
-    def create(self, db: Session, *, obj_in: RepoCreate) -> Repo:
-        repo = super().create(db, obj_in=obj_in)
-
-        return repo
 
 
 org = CRUDOrg(Org)

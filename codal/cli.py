@@ -79,10 +79,12 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     else:
         click.echo(f"Cloning repo: {git_url} -> {git_dir}")
         git_repo = GitRepo.clone_from(git_url, git_dir)
+
+        # Store the default branch as a file so that we can recover it if the db is lost
         default_branch_path.parent.mkdir(parents=True, exist_ok=True)
         default_branch_path.write_text(git_repo.active_branch.name + "\n")
 
-    # Add the default branch on the first run
+    # Update the default branch
     if repo.default_branch is None:
         default_branch = default_branch_path.read_text().strip()
         repo = crud.repo.update(
@@ -252,7 +254,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
 
 def _get_repo_or_raise(db: Session, org_and_repo: str) -> Repo:
     org_name, repo_name = org_and_repo.split("/")
-    repo = crud.repo.get_by_name(db, org_name=org_name, name=repo_name)
+    repo = crud.repo.get(db, org_name=org_name, name=repo_name)
     if repo is None:
         click.echo(
             f"Repo does not exist. Have you run `codal embed {org_and_repo}`?", err=True
