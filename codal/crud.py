@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, Generic, Optional, Type, TypeVar, Union
+from typing import Any, Dict, Generic, List, Optional, Sequence, Type, TypeVar, Union
 
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
@@ -10,7 +10,7 @@ from codal.models import Repo
 from codal.schemas import RepoCreate
 
 from .database import Base
-from .models import Org, Repo, Commit, Document, DocumentVersion
+from .models import Org, Repo, Commit, Document, DocumentVersion, Chunk
 from .schemas import (
     OrgCreate,
     OrgUpdate,
@@ -22,6 +22,8 @@ from .schemas import (
     DocumentUpdate,
     DocumentVersionCreate,
     DocumentVersionUpdate,
+    ChunkCreate,
+    ChunkUpdate,
 )
 
 
@@ -143,8 +145,33 @@ class CRUDDocumentVersion(
         return self.create(db, obj_in=obj_in)
 
 
+class CRUDChunk(CRUDBase[Chunk, ChunkCreate, ChunkUpdate]):
+    def get_multi_by_repo(self, db: Session, *, repo: Repo) -> Sequence[Chunk]:
+        chunks = (
+            db.execute(
+                (
+                    select(Chunk)
+                    .join(Chunk.document_versions)
+                    .join(DocumentVersion.document)
+                    .where(
+                        Document.repo == repo,
+                        DocumentVersion.commit == repo.head_commit,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return chunks
+
+    def get_multi_by_id(self, db: Session, *, ids: List[int]) -> Sequence[Chunk]:
+        chunks = db.execute(select(Chunk).where(Chunk.id.in_(ids))).scalars().all()
+        return chunks
+
+
 org = CRUDOrg(Org)
 repo = CRUDRepo(Repo)
 commit = CRUDCommit(Commit)
 document = CRUDDocument(Document)
 document_version = CRUDDocumentVersion(DocumentVersion)
+chunk = CRUDChunk(Chunk)

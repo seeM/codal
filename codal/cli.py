@@ -8,13 +8,12 @@ import tiktoken
 import uvicorn
 from git.repo import Repo as GitRepo
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
 from . import crud
 from .database import SessionLocal
-from .models import Chunk, Document, DocumentVersion, Repo
+from .models import Chunk, Repo
 from .ai import get_chat_completion, get_embedding
 from .schemas import (
     CommitCreate,
@@ -250,20 +249,7 @@ def reindex(repo: Repo, db: Session) -> hnswlib.Index:
     Rebuild the vector search index for a repo.
     """
     # Make the vector search index
-    chunks = (
-        db.execute(
-            (
-                select(Chunk)
-                .join(Chunk.document_versions)
-                .join(DocumentVersion.document)
-                .where(
-                    Document.repo == repo, DocumentVersion.commit == repo.head_commit
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    chunks = crud.chunk.get_multi_by_repo(db, repo=repo)
 
     # TODO: Need to investigate, but I found in tests that LICENSE always appears at the top of
     #       my search results. I suspect because it's in English and is therefore the most similar
@@ -322,7 +308,7 @@ def _ask(repo, question: str, db: Session, num_neighbors=10, debug=False) -> str
     # Elements have to be Python ints (not numpy ints) else the sqlalchemy query below returns empty
     nn_ids = [int(id) for id in nn_ids[0]]
 
-    nn_chunks = db.execute(select(Chunk).where(Chunk.id.in_(nn_ids))).scalars().all()
+    nn_chunks = crud.chunk.get_multi_by_id(db, ids=nn_ids)
 
     context = "\n\n".join(
         [f"### {chunk.document.path}\n\n" + chunk.text for chunk in nn_chunks]
