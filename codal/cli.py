@@ -274,7 +274,13 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
             db, document_version, DocumentVersionUpdate(chunks=chunks, processed=True)
         )
 
-    print(num_processed_tokens, num_unprocessed_tokens)
+    # NOTE: I'm not sure why chunk tokens don't add up to document version tokens.
+    #       Maybe because of the way we split the text e.g. stripping chunks?
+    echo_progress(
+        "Embedding changed files, tokens processed",
+        num_unprocessed_tokens,
+        num_unprocessed_tokens,
+    )
 
     # Finally, bump the head commit
     crud.repo.update(db, repo, RepoUpdate(head_commit_id=commit.id))
