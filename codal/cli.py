@@ -1,11 +1,9 @@
-import time
 from functools import wraps
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import click
 import hnswlib
 import numpy as np
-import openai
 import tiktoken
 import uvicorn
 from git.repo import Repo as GitRepo
@@ -16,9 +14,9 @@ from tqdm import tqdm
 
 from . import crud
 from .database import SessionLocal
-from .models import Chunk, Document, DocumentVersion, Repo, Commit
+from .models import Chunk, Document, DocumentVersion, Repo
 from .ai import get_chat_completion, get_embedding
-from .schemas import RepoUpdate
+from .schemas import CommitCreate, OrgCreate, RepoCreate, RepoUpdate
 from .settings import INDEX_DIR, EMBEDDING_MODEL_NAME, REPO_DIR
 from .version import __version__
 
@@ -63,8 +61,8 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
 
     # Get or create the organization and repo
     org_name, repo_name = repo_arg.split("/")
-    org = crud.org.get_or_create(db, name=org_name)
-    repo = crud.repo.get_or_create(db, org_id=org.id, name=repo_name)
+    org = crud.org.get_or_create(db, OrgCreate(name=org_name))
+    repo = crud.repo.get_or_create(db, RepoCreate(name=repo_name, org_id=org.id))
 
     # Clone or pull the repo
     git_url = f"https://github.com/{repo.org.name}/{repo.name}.git"
@@ -99,16 +97,11 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     click.echo(f"Checking out: {head}")
     git_repo.git.checkout(head)
 
-    db.add(repo)
-    db.commit()
-
     git_commit = git_repo.head.commit
-    commit = db.execute(
-        select(Commit).where(Commit.repo == repo, Commit.sha == git_commit.hexsha)
-    ).scalar_one_or_none()
-    if commit is None:
-        commit = Commit(
-            repo=repo,
+    commit = crud.commit.get_or_create(
+        db,
+        CommitCreate(
+            repo_id=repo.id,
             sha=git_commit.hexsha,
             message=str(git_commit.message),
             author_name=git_commit.author.name,
@@ -117,11 +110,10 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
             committer_name=git_commit.committer.name,
             committer_email=git_commit.committer.email,
             committed_datetime=git_commit.committed_datetime,
-        )
+        ),
+    )
 
     prev_head = repo.head_commit
-    db.add(commit)
-    db.commit()
 
     # Read documents from the repo
     encoder = tiktoken.encoding_for_model(EMBEDDING_MODEL_NAME)
@@ -243,9 +235,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         db.commit()
 
     # Finally, bump the head commit
-    repo.head_commit = commit
-    db.add(repo)
-    db.commit()
+    crud.repo.update(db, repo, RepoUpdate(head_commit_id=commit.id))
 
     reindex(repo, db)
 
@@ -254,7 +244,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
 
 def _get_repo_or_raise(db: Session, org_and_repo: str) -> Repo:
     org_name, repo_name = org_and_repo.split("/")
-    repo = crud.repo.get(db, org_name=org_name, name=repo_name)
+    repo = crud.repo.get(db, name=repo_name, org_name=org_name)
     if repo is None:
         click.echo(
             f"Repo does not exist. Have you run `codal embed {org_and_repo}`?", err=True
