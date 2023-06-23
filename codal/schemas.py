@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel
@@ -49,4 +50,18 @@ class CommitCreate(CommitBase):
 
 
 class CommitUpdate(CommitBase):
+    pass
+
+
+class DocumentBase(BaseModel):
+    repo_id: Optional[int] = None
+    path: Optional[Path] = None
+
+
+class DocumentCreate(DocumentBase):
+    repo_id: int
+    path: Path
+
+
+class DocumentUpdate(DocumentBase):
     pass

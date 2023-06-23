@@ -16,7 +16,7 @@ from . import crud
 from .database import SessionLocal
 from .models import Chunk, Document, DocumentVersion, Repo
 from .ai import get_chat_completion, get_embedding
-from .schemas import CommitCreate, OrgCreate, RepoCreate, RepoUpdate
+from .schemas import CommitCreate, DocumentCreate, OrgCreate, RepoCreate, RepoUpdate
 from .settings import INDEX_DIR, EMBEDDING_MODEL_NAME, REPO_DIR
 from .version import __version__
 
@@ -136,17 +136,9 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
             path = path.relative_to(git_dir)
 
             # Get or create the document
-            document = db.execute(
-                select(Document).where(
-                    Document.repo == repo,
-                    Document.path == path,
-                )
-            ).scalar_one_or_none()
-            if document is None:
-                document = Document(repo=repo, path=path)
-                db.add(document)
-                # TODO: need to commit?
-                db.commit()
+            document = crud.document.get_or_create(
+                db, DocumentCreate(repo_id=repo.id, path=path)  # TODO: path=str(path))
+            )
 
             # If a version does not exist for this commit, create one.
             document_version = db.execute(

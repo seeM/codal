@@ -1,5 +1,5 @@
-from typing import Any, Dict, Generic, Optional, Type, TypeVar, TypedDict, Union
-from typing_extensions import Unpack
+from pathlib import Path
+from typing import Any, Dict, Generic, Optional, Type, TypeVar, Union
 
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
@@ -10,7 +10,7 @@ from codal.models import Repo
 from codal.schemas import RepoCreate
 
 from .database import Base
-from .models import Org, Repo, Commit
+from .models import Org, Repo, Commit, Document
 from .schemas import (
     OrgCreate,
     OrgUpdate,
@@ -18,6 +18,8 @@ from .schemas import (
     RepoUpdate,
     CommitCreate,
     CommitUpdate,
+    DocumentCreate,
+    DocumentUpdate,
 )
 
 
@@ -100,6 +102,21 @@ class CRUDCommit(CRUDBase[Commit, CommitCreate, CommitUpdate]):
         return self.create(db, obj_in=obj_in)
 
 
+class CRUDDocument(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
+    def get(self, db: Session, *, repo_id: int, path: Path) -> Optional[Document]:
+        document = db.execute(
+            select(Document).where(Document.repo_id == repo_id, Document.path == path)
+        ).scalar_one_or_none()
+        return document
+
+    def get_or_create(self, db: Session, obj_in: DocumentCreate) -> Document:
+        document = self.get(db, repo_id=obj_in.repo_id, path=obj_in.path)
+        if document:
+            return document
+        return self.create(db, obj_in=obj_in)
+
+
 org = CRUDOrg(Org)
 repo = CRUDRepo(Repo)
 commit = CRUDCommit(Commit)
+document = CRUDDocument(Document)
