@@ -30,6 +30,9 @@ setup(
     license="Apache License, Version 2.0",
     version=get_version(),
     packages=["codal"],
+    package_data={
+        "codal": ["alembic.ini", "alembic/*", "alembic/versions/*"],
+    },
     entry_points="""
         [console_scripts]
         codal=codal.cli:cli

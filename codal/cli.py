@@ -13,7 +13,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sqlalchemy.orm import Session
 
 from . import crud
-from .database import SessionLocal
+from .database import SessionLocal, migrate
 from .models import Chunk, Repo
 from .ai import get_chat_completion, get_embedding
 from .schemas import (
@@ -63,6 +63,7 @@ def progress(it: Sequence[T], prefix: str) -> Iterable[T]:
 def _provide_db(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
+        migrate()
         with SessionLocal() as db:
             kwargs["db"] = db
             return func(*args, **kwargs)

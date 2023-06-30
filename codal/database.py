@@ -1,7 +1,13 @@
+from importlib.resources import files, path
+
+from alembic.config import Config
+from alembic.command import upgrade
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./codal.db"
+from .settings import DB_PATH
+
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH.absolute()}"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
@@ -23,3 +29,12 @@ metadata = MetaData(
 
 class Base(DeclarativeBase):
     metadata = metadata
+
+
+def migrate():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    config = Config()
+    script_location = str(files("codal") / "alembic")
+    config.set_main_option("script_location", script_location)
+    config.set_main_option("sqlalchemy.url", SQLALCHEMY_DATABASE_URL)
+    upgrade(config, "head")
