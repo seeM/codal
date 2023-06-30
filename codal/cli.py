@@ -80,13 +80,25 @@ def cli() -> None:
     pass
 
 
+_REPO_DESCRIPTION = (
+    'REPO should uniquely identify a valid GitHub repo, e.g. "seem/codal".'
+)
+
+
 @cli.command()
 @click.argument("repo")
 @click.option("--head", help="Commit hash to embed.")
+@click.option(
+    "--repo-dir",
+    help="Path to the cloned repo directory.",
+    type=click.Path(file_okay=False, dir_okay=True),
+)
 @_provide_db
-def embed(repo, db: Session, head: Optional[str]) -> None:
-    """
+def embed(repo, db: Session, head: Optional[str], repo_dir) -> None:
+    f"""
     Embed a GitHub REPO.
+
+    {_REPO_DESCRIPTION}
 
     The first run clones the repo. Subsequent runs pull the latest changes.
 
@@ -95,7 +107,12 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         codal embed seem/codal
     """
     repo_arg = repo
-    org_name, repo_name = repo_arg.split("/")
+    try:
+        org_name, repo_name = repo_arg.split("/")
+    except ValueError:
+        raise click.UsageError(
+            _REPO_DESCRIPTION,
+        )
 
     # Clone or pull the repo
     git_url = f"https://github.com/{org_name}/{repo_name}.git"
