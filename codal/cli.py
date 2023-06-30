@@ -11,10 +11,11 @@ from git.repo import Repo as GitRepo
 from git.exc import GitCommandError
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from . import crud
 from .database import SessionLocal, migrate
-from .models import Chunk, Repo
+from .models import Chunk, DocumentVersion, Repo
 from .ai import get_chat_completion, get_embedding
 from .schemas import (
     CommitCreate,
@@ -477,15 +478,12 @@ def serve():
 
 
 @cli.command()
+@click.option("--fix", is_flag=True)
 @_provide_db
-def check(db: Session):
+def check(db: Session, fix: bool):
     """
     Check that the database is in a consistent state.
     """
-    from sqlalchemy import select
-
-    from .models import DocumentVersion
-
     document_versions = (
         db.execute(
             select(DocumentVersion).where(
@@ -498,10 +496,11 @@ def check(db: Session):
 
     if document_versions:
         click.echo(
-            f"Found {len(document_versions)} processed document versions with no chunks, resetting processed to false",
+            f"Found {len(document_versions)} processed document versions with no chunks",
             err=True,
         )
-        for document_version in document_versions:
-            crud.document_version.update(
-                db, document_version, DocumentVersionUpdate(processed=False)
-            )
+        if fix:
+            for document_version in document_versions:
+                crud.document_version.update(
+                    db, document_version, DocumentVersionUpdate(processed=False)
+                )
