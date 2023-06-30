@@ -1,6 +1,9 @@
+import os
 from pathlib import Path
 
-CACHE_DIR = Path.home() / ".cache/codal"
+_DEFAULT_XDG_CACHE_HOME = Path.home() / ".cache"
+XDG_CACHE_HOME = Path(os.getenv("XDG_CACHE_HOME", _DEFAULT_XDG_CACHE_HOME)).expanduser()
+CACHE_DIR = XDG_CACHE_HOME / "codal"
 REPO_DIR = CACHE_DIR / "repos"
 INDEX_DIR = CACHE_DIR / "indexes"
 DB_PATH = CACHE_DIR / "db.sqlite"

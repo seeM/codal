@@ -88,13 +88,8 @@ _REPO_DESCRIPTION = (
 @cli.command()
 @click.argument("repo")
 @click.option("--head", help="Commit hash to embed.")
-@click.option(
-    "--repo-dir",
-    help="Path to the cloned repo directory.",
-    type=click.Path(file_okay=False, dir_okay=True),
-)
 @_provide_db
-def embed(repo, db: Session, head: Optional[str], repo_dir) -> None:
+def embed(repo, db: Session, head: Optional[str]) -> None:
     f"""
     Embed a GitHub REPO.
 

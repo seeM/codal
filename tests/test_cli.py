@@ -25,3 +25,15 @@ def test_embed_invalid_repo(runner: CliRunner) -> None:
     )
     assert result.stderr.splitlines()[-1].startswith("Error: REPO")
     assert result.exit_code == 2
+
+
+def test_embed(runner: CliRunner) -> None:
+    from codal.cli import cli
+
+    result = runner.invoke(
+        cli,
+        ["embed", "seem/test-codal-repo"],
+        catch_exceptions=False,
+    )
+    print(result)
+    assert 0
