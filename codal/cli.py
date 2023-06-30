@@ -196,7 +196,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
             )
 
             # Use the chunks from the previous head, if we can.
-            if not document_version.processed:
+            if not document_version.processed and prev_head is not None:
                 previous_document_version = crud.document_version.get(
                     db,
                     document_id=document.id,
