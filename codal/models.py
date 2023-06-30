@@ -93,6 +93,9 @@ class Repo(Base):
         Index(None, org_id, "name", unique=True),
     )
 
+    def __repr__(self) -> str:
+        return f"<Repo {self.org.name}/{self.name}>"
+
 
 class Commit(Base):
     __tablename__ = "commits"
