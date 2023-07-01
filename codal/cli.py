@@ -117,7 +117,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     if (git_dir / ".git").exists():
         git_repo = GitRepo(git_dir)
         origin = git_repo.remote(name="origin")
-        click.echo(f"Fetching latest changes: {git_dir}", err=True)
+        click.echo(f"Fetching latest changes: {pretty_print(git_dir)}", err=True)
         origin.fetch()
     else:
         click.echo(f"Cloning repo: {git_url} -> {pretty_print(git_dir)}", err=True)
