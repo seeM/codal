@@ -140,9 +140,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     # Update the default branch
     if repo.default_branch is None:
         default_branch = default_branch_path.read_text().strip()
-        repo = crud.repo.update(
-            db, db_obj=repo, obj_in=RepoUpdate(default_branch=default_branch)
-        )
+        repo = crud.repo.update(db, repo, RepoUpdate(default_branch=default_branch))
 
     assert repo.default_branch is not None
 
@@ -288,12 +286,16 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
                 num_unprocessed_tokens,
             )
 
+        # NOTE: We have to access document_version.chunks, else `update` doesn't override it,
+        #       possibly due to SQLAlchemy's lazy relationship loading.
+        assert document_version.chunks == []
         crud.document_version.update(
             db, document_version, DocumentVersionUpdate(chunks=chunks, processed=True)
         )
 
     # NOTE: I'm not sure why chunk tokens don't add up to document version tokens.
     #       Maybe because of the way we split the text e.g. stripping chunks?
+    # TODO: I think it's because of newlines that get stripped from chunks.
     if num_processed_tokens != num_unprocessed_tokens:
         echo_progress(
             embed_message,
