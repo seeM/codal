@@ -3,29 +3,28 @@ from typing import Any, Dict, Generic, List, Optional, Sequence, Type, TypeVar, 
 
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from codal.models import Repo
 from codal.schemas import RepoCreate
 
 from .database import Base
-from .models import Org, Repo, Commit, Document, DocumentVersion, Chunk
+from .models import Chunk, Commit, Document, DocumentVersion, Org, Repo
 from .schemas import (
-    OrgCreate,
-    OrgUpdate,
-    RepoCreate,
-    RepoUpdate,
+    ChunkCreate,
+    ChunkUpdate,
     CommitCreate,
     CommitUpdate,
     DocumentCreate,
     DocumentUpdate,
     DocumentVersionCreate,
     DocumentVersionUpdate,
-    ChunkCreate,
-    ChunkUpdate,
+    OrgCreate,
+    OrgUpdate,
+    RepoCreate,
+    RepoUpdate,
 )
-
 
 ModelType = TypeVar("ModelType", bound=Base)
 CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)

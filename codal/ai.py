@@ -3,6 +3,7 @@ from typing import Iterator, Optional
 
 import numpy as np
 import openai
+
 from codal.settings import settings
 
 

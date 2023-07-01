@@ -9,14 +9,14 @@ from typing import List, Optional
 import numpy as np
 from sqlalchemy import (
     Column,
-    Table,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     LargeBinary,
     String,
+    Table,
     TypeDecorator,
     UniqueConstraint,
-    Index,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing_extensions import Annotated

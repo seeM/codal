@@ -1,13 +1,12 @@
 from typing import Iterable, Set
-from click.testing import CliRunner
 
 import pytest
-from sqlalchemy.orm import Session
+from click.testing import CliRunner
 from sqlalchemy import inspect, select
-
+from sqlalchemy.orm import Session
 
 from codal.cli import cli
-from codal.database import SessionLocal, migrate, engine, metadata
+from codal.database import SessionLocal, engine, metadata, migrate
 from codal.models import Repo
 from codal.settings import settings
 

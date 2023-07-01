@@ -50,6 +50,6 @@ setup(
         "tiktoken",
         "typing_extensions",
     ],
-    extras_require={"test": ["pytest", "cogapp"]},
+    extras_require={"test": ["black", "cogapp", "isort", "pytest"]},
     python_requires=">=3.8",
 )

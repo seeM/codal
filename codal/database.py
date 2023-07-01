@@ -1,12 +1,11 @@
 from importlib.resources import files
 
-from alembic.config import Config
 from alembic.command import upgrade
+from alembic.config import Config
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from .settings import settings
-
 
 engine = create_engine(
     settings.SQLALCHEMY_DATABASE_URI, connect_args={"check_same_thread": False}

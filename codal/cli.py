@@ -7,16 +7,16 @@ import hnswlib
 import numpy as np
 import tiktoken
 import uvicorn
-from git.repo import Repo as GitRepo
 from git.exc import GitCommandError
+from git.repo import Repo as GitRepo
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from . import crud
+from .ai import get_chat_completion, get_embedding
 from .database import SessionLocal, migrate
 from .models import Chunk, DocumentVersion, Repo
-from .ai import get_chat_completion, get_embedding
 from .schemas import (
     CommitCreate,
     DocumentCreate,
