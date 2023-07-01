@@ -133,6 +133,9 @@ class Document(Base):
 
     __table_args__ = (Index(None, repo_id, "path", unique=True),)
 
+    def __repr__(self) -> str:
+        return f"<Document {self.repo.org.name}/{self.repo.name}/{self.path}>"
+
 
 document_version_chunks = Table(
     "document_version_chunks",
