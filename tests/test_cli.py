@@ -1,25 +1,55 @@
-import os
-from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Set
 from click.testing import CliRunner
-from unittest import mock
 
 import pytest
+from sqlalchemy.orm import Session
+from sqlalchemy import inspect, select
 
 
-@pytest.fixture
-def runner(tmp_path: Path) -> Iterable[CliRunner]:
-    runner = CliRunner(mix_stderr=False)
-    cache_home = tmp_path / "cache"
-    with mock.patch.dict(
-        os.environ, {"XDG_CACHE_HOME": str(cache_home)}
-    ), runner.isolated_filesystem(temp_dir=tmp_path):
-        yield runner
+from codal.cli import cli
+from codal.database import SessionLocal, migrate, engine, metadata
+from codal.models import Repo
+from codal.settings import settings
+
+
+@pytest.fixture(scope="session")
+def runner() -> Iterable[CliRunner]:
+    yield CliRunner(mix_stderr=False)
+
+
+@pytest.fixture(scope="session")
+def db() -> Iterable[Session]:
+    yield SessionLocal()
+
+
+def _inspect_table_names() -> Set[str]:
+    insp = inspect(engine)
+    table_names = insp.get_table_names()
+    return set(table_names)
+
+
+# NOTE: This test is currently order-dependent; it must run first since invoking `embed` calls
+#       migrate, and we reuse the same database for all tests.
+def test_migrate() -> None:
+    """
+    Running `migrate` creates all tables in the database.
+    """
+    settings.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    table_names = _inspect_table_names()
+    assert table_names == set()
+
+    migrate()
+
+    table_names = _inspect_table_names()
+    expected = metadata.tables.keys() | {"alembic_version"}
+    assert table_names == expected
 
 
 def test_embed_invalid_repo(runner: CliRunner) -> None:
-    from codal.cli import cli
-
+    """
+    Running `embed` with an invalid repo identifier prints an error message.
+    """
     result = runner.invoke(
         cli, ["embed", "not-a-repo-identifier"], catch_exceptions=False
     )
@@ -27,13 +57,12 @@ def test_embed_invalid_repo(runner: CliRunner) -> None:
     assert result.exit_code == 2
 
 
-def test_embed(runner: CliRunner) -> None:
-    from codal.cli import cli
+# def test_embed_first_run(runner: CliRunner, db: Session) -> None:
+#     result = runner.invoke(
+#         cli,
+#         ["embed", "seem/test-codal-repo"],
+#         catch_exceptions=False,
+#     )
 
-    result = runner.invoke(
-        cli,
-        ["embed", "seem/test-codal-repo"],
-        catch_exceptions=False,
-    )
-    print(result)
-    assert 0
+#     repos = db.execute(select(Repo)).scalars().all()
+#     assert 0
