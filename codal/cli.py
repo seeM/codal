@@ -220,13 +220,8 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
                     and previous_document_version.processed
                     and document_version.text == previous_document_version.text
                 ):
-                    crud.document_version.update(
-                        db,
-                        document_version,
-                        DocumentVersionUpdate(
-                            chunks=previous_document_version.chunks,
-                            processed=True,
-                        ),
+                    crud.document_version.set_chunks(
+                        db, document_version, previous_document_version.chunks
                     )
 
             document_versions.append(document_version)
@@ -286,12 +281,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
                 num_unprocessed_tokens,
             )
 
-        # NOTE: We have to access document_version.chunks, else `update` doesn't override it,
-        #       possibly due to SQLAlchemy's lazy relationship loading.
-        assert document_version.chunks == []
-        crud.document_version.update(
-            db, document_version, DocumentVersionUpdate(chunks=chunks, processed=True)
-        )
+        crud.document_version.set_chunks(db, document_version, chunks)
 
     # NOTE: I'm not sure why chunk tokens don't add up to document version tokens.
     #       Maybe because of the way we split the text e.g. stripping chunks?

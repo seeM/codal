@@ -143,6 +143,18 @@ class CRUDDocumentVersion(
             return document_version
         return self.create(db, obj_in=obj_in)
 
+    def set_chunks(
+        self, db: Session, document_version: DocumentVersion, chunks: List[Chunk]
+    ) -> DocumentVersion:
+        # NOTE: We have to access document_version.chunks, else `update` doesn't override it,
+        #       possibly due to SQLAlchemy's lazy relationship loading.
+        # TODO: Is there a better way to handle this in `update` or via schemas?
+        #       Maybe this is why we should use ids in the schemas?
+        assert document_version.chunks == []
+        return self.update(
+            db, document_version, DocumentVersionUpdate(chunks=chunks, processed=True)
+        )
+
 
 class CRUDChunk(CRUDBase[Chunk, ChunkCreate, ChunkUpdate]):
     def get_multi_by_repo(self, db: Session, *, repo: Repo) -> Sequence[Chunk]:
