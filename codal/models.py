@@ -173,7 +173,7 @@ class Chunk(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"))
-    start: Mapped[Optional[int]]
+    start: Mapped[int]
     end: Mapped[int]
     text: Mapped[str]
     embedding: Mapped[array]
