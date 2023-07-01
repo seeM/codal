@@ -123,7 +123,9 @@ def test_embed_first_run(runner: CliRunner, db: Session) -> None:
     # Creates Chunks in the database
     chunks = db.execute(select(Chunk)).scalars().all()
     assert len(chunks) == 1
-    _test_chunks(chunks, document, document_version)
+
+    # Check the chunks themselves
+    _test_chunks(document_version)
 
     # Index file is updated to reflect chunks
     _test_index(chunks, org_name, repo_name)
@@ -191,13 +193,15 @@ def test_embed_updated_file(runner: CliRunner, db: Session) -> None:
     # New Chunks in the database
     chunks = db.execute(select(Chunk)).scalars().all()
     assert len(chunks) == 2
-    chunks = [
-        chunk for chunk in chunks if chunk.document_versions == [document_version]
-    ]
-    _test_chunks(chunks, document, document_version)
+
+    # Check the chunks themselves
+    _test_chunks(document_version)
 
     # Index file is updated to reflect chunks
-    _test_index(chunks, org_name, repo_name)
+    head_chunks = [
+        chunk for chunk in chunks if chunk.document_versions == [document_version]
+    ]
+    _test_index(head_chunks, org_name, repo_name)
 
 
 def test_embed_new_file(runner: CliRunner, db: Session) -> None:
@@ -266,25 +270,28 @@ def test_embed_new_file(runner: CliRunner, db: Session) -> None:
     assert new_document_version.processed == True
 
     # New Chunks in the database
-    chunks = db.execute(select(Chunk)).scalars().all()
-    assert len(chunks) == 3
-    chunks = [
-        chunk for chunk in chunks if chunk.document_versions == [document_version]
-    ]
-    _test_chunks(chunks, new_document, new_document_version)
+    all_chunks = db.execute(select(Chunk)).scalars().all()
+    assert len(all_chunks) == 3
+
+    # Check the chunks themselves
+    _test_chunks(new_document_version)
 
     # Index file is updated to reflect chunks
-    _test_index(chunks, org_name, repo_name)
+    head_chunks = [
+        chunk
+        for chunk in all_chunks
+        if unchanged_document_version in chunk.document_versions
+        or new_document_version in chunk.document_versions
+    ]
+    _test_index(head_chunks, org_name, repo_name)
 
 
-def _test_chunks(
-    chunks: Sequence[Chunk], document: Document, document_version: DocumentVersion
-) -> None:
-    chunks = sorted(chunks, key=lambda x: x.start)
+def _test_chunks(document_version: DocumentVersion) -> None:
+    chunks = sorted(document_version.chunks, key=lambda x: x.start)
 
     # Chunks are linked to documents and document versions
     for chunk in chunks:
-        assert chunk.document_id == document.id
+        assert chunk.document_id == document_version.document.id
         assert chunk.document_versions == [document_version]
 
     # Chunks cover the entire document
