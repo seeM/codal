@@ -1,6 +1,8 @@
 import time
+from pathlib import Path
 from typing import Iterator, Optional
 
+import hnswlib
 import numpy as np
 import openai
 
@@ -39,3 +41,12 @@ def get_chat_completion(
     ):
         content = chunk.choices[0].get("delta", {}).get("content")  # type: ignore
         yield content
+
+
+def load_index(path: Path, dim: int) -> Optional[hnswlib.Index]:
+    if not path.is_file():
+        return None
+    # TODO: Don't hardcode the dimension
+    index = hnswlib.Index(space="cosine", dim=dim)
+    index.load_index(str(path))
+    return index

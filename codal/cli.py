@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import crud
-from .ai import get_chat_completion, get_embedding
+from .ai import get_chat_completion, get_embedding, load_index
 from .database import SessionLocal, migrate
 from .models import Chunk, DocumentVersion, Repo
 from .schemas import (
@@ -364,15 +364,13 @@ def _ask(repo, question: str, db: Session, num_neighbors=10, debug=False) -> str
     # TODO: Make Repo property
     index_path = settings.INDEX_DIR / f"{repo.org.name}-{repo.name}.bin"
 
-    # TODO: Do we really have to store the dimension somewhere?
-    #       SQL table?
-    index = hnswlib.Index(space="cosine", dim=1536)
-    if not index_path.is_file():
+    # TODO: Don't hardcode the dimension
+    index = load_index(index_path, dim=1536)
+    if index is None:
         click.echo(
             f"Index does not exist. Have you run `codal embed {repo_arg}`?", err=True
         )
         raise click.exceptions.Exit(1)
-    index.load_index(str(index_path))
 
     # Find the top nearest neighbours
 
