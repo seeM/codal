@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Set
+from typing import Iterable, Sequence, Set
 
 import pytest
 from click.testing import CliRunner
@@ -20,7 +20,7 @@ def runner() -> Iterable[CliRunner]:
     yield CliRunner(mix_stderr=False)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def db() -> Iterable[Session]:
     yield SessionLocal()
 
@@ -62,9 +62,12 @@ def test_embed_invalid_repo(runner: CliRunner) -> None:
 
 def test_embed_first_run(runner: CliRunner, db: Session) -> None:
     repo_arg = "seem/test-codal-repo"
+    org_name, repo_name = repo_arg.split("/")
+    head_commit_sha = "f51a972d1c611636847bffddd868c3329f9588d1"
+
     result = runner.invoke(
         cli,
-        ["embed", repo_arg],
+        ["embed", repo_arg, "--head", head_commit_sha],
         catch_exceptions=False,
     )
 
@@ -78,12 +81,10 @@ def test_embed_first_run(runner: CliRunner, db: Session) -> None:
     assert not git_repo.bare
 
     # Checks out the latest commit
-    head_commit_sha = "f51a972d1c611636847bffddd868c3329f9588d1"
     assert git_repo.head.commit.hexsha == head_commit_sha
 
     # Creates an Org in the database
     org = db.execute(select(Org)).scalar_one()
-    org_name, repo_name = repo_arg.split("/")
     assert org.name == org_name
 
     # Creates a Repo in the database
@@ -122,7 +123,163 @@ def test_embed_first_run(runner: CliRunner, db: Session) -> None:
     # Creates Chunks in the database
     chunks = db.execute(select(Chunk)).scalars().all()
     assert len(chunks) == 1
+    _test_chunks(chunks, document, document_version)
 
+    # Index file is updated to reflect chunks
+    _test_index(chunks, org_name, repo_name)
+
+
+def test_embed_updated_file(runner: CliRunner, db: Session) -> None:
+    repo_arg = "seem/test-codal-repo"
+    org_name, repo_name = repo_arg.split("/")
+    head_commit_sha = "e1ed69c96180e7282d0b10f1bb36088a2789ccea"
+
+    result = runner.invoke(
+        cli,
+        ["embed", repo_arg, "--head", head_commit_sha],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+
+    # Cloned repo points to the new head
+    git_dir = settings.REPO_DIR / repo_arg
+    git_repo = GitRepo(git_dir)
+    assert git_repo.head.commit.hexsha == head_commit_sha
+
+    # Database Repo points to the new head
+    repo = db.execute(select(Repo)).scalar_one()
+    assert repo.head_commit.sha == head_commit_sha
+
+    # New Commit in the database
+    commits = db.execute(select(Commit)).scalars().all()
+    assert len(commits) == 2
+    commit = next(commit for commit in commits if commit.sha == head_commit_sha)
+    committed_datetime = datetime(2023, 7, 1, 11, 32, 49)
+    assert commit.repo_id == repo.id
+    assert commit.sha == head_commit_sha
+    assert commit.message == "update readme\n"
+    assert commit.author_name == "seem"
+    assert commit.author_email and commit.author_email.endswith(".com")
+    assert commit.authored_datetime == committed_datetime
+    assert commit.committer_name == "seem"
+    assert commit.committer_email and commit.author_email.endswith(".com")
+    assert commit.committed_datetime == committed_datetime
+
+    # Still the same Document in the database
+    document = db.execute(select(Document)).scalar_one()
+    assert document.repo_id == repo.id
+    assert document.path == Path("README.md")
+
+    # New DocumentVersion in the database
+    document_versions = db.execute(select(DocumentVersion)).scalars().all()
+    assert len(document_versions) == 2
+    document_version = next(
+        document_version
+        for document_version in document_versions
+        if document_version.commit_id == commit.id
+    )
+    assert document_version.document_id == document.id
+    assert document_version.commit_id == commit.id
+    assert (
+        document_version.text
+        == "# test-codal-repo\n\nThis repo is used solely to test [Codal](https://github.com/seeM/codal).\n"
+    )
+    assert document_version.num_tokens == 28
+    assert document_version.processed == True
+
+    # New Chunks in the database
+    chunks = db.execute(select(Chunk)).scalars().all()
+    assert len(chunks) == 2
+    chunks = [
+        chunk for chunk in chunks if chunk.document_versions == [document_version]
+    ]
+    _test_chunks(chunks, document, document_version)
+
+    # Index file is updated to reflect chunks
+    _test_index(chunks, org_name, repo_name)
+
+
+def test_embed_new_file(runner: CliRunner, db: Session) -> None:
+    repo_arg = "seem/test-codal-repo"
+    org_name, repo_name = repo_arg.split("/")
+    head_commit_sha = "58c9dd47390b6003c4006a29b2b9f1f01026b4c7"
+    # TODO: The db should allow us to get the parent commit sha instead of hardcoding
+    prev_head_commit_sha = "e1ed69c96180e7282d0b10f1bb36088a2789ccea"
+
+    result = runner.invoke(
+        cli,
+        ["embed", repo_arg, "--head", head_commit_sha],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+
+    # New Document in the database
+    documents = db.execute(select(Document)).scalars().all()
+    assert len(documents) == 2
+
+    unchanged_document = next(
+        document for document in documents if document.path == Path("README.md")
+    )
+
+    new_document = next(
+        document for document in documents if document.path == Path(".gitignore")
+    )
+
+    # New DocumentVersion in the database
+    document_versions = db.execute(select(DocumentVersion)).scalars().all()
+    assert len(document_versions) == 4
+
+    # The unchanged document should have a new version that reuses the same chunks
+    unchanged_document_version = next(
+        document_version
+        for document_version in document_versions
+        if document_version.commit.sha == head_commit_sha
+        and document_version.document_id == unchanged_document.id
+    )
+    unchanged_previous_document_version = next(
+        document_version
+        for document_version in document_versions
+        if document_version.commit.sha == prev_head_commit_sha
+        and document_version.document_id == unchanged_document.id
+    )
+    assert unchanged_document_version.text == unchanged_previous_document_version.text
+    assert (
+        unchanged_document_version.num_tokens
+        == unchanged_previous_document_version.num_tokens
+    )
+    assert (
+        unchanged_document_version.chunks == unchanged_previous_document_version.chunks
+    )
+
+    # There should also be a new version corresponding to the new file
+    new_document_version = next(
+        document_version
+        for document_version in document_versions
+        if document_version.commit.sha == head_commit_sha
+        and document_version.document_id == new_document.id
+    )
+
+    assert new_document_version.text == "*.sqlite\n"
+    assert new_document_version.num_tokens == 3
+    assert new_document_version.processed == True
+
+    # New Chunks in the database
+    chunks = db.execute(select(Chunk)).scalars().all()
+    assert len(chunks) == 3
+    chunks = [
+        chunk for chunk in chunks if chunk.document_versions == [document_version]
+    ]
+    _test_chunks(chunks, new_document, new_document_version)
+
+    # Index file is updated to reflect chunks
+    _test_index(chunks, org_name, repo_name)
+
+
+def _test_chunks(
+    chunks: Sequence[Chunk], document: Document, document_version: DocumentVersion
+) -> None:
     chunks = sorted(chunks, key=lambda x: x.start)
 
     # Chunks are linked to documents and document versions
@@ -148,6 +305,8 @@ def test_embed_first_run(runner: CliRunner, db: Session) -> None:
     #       If we run with an existing repo dir but no DB entry, we should still set a default branch
     #       There's also an assert in embed so maybe that's good enough
 
+
+def _test_index(chunks: Sequence[Chunk], org_name: str, repo_name: str) -> None:
     # Creates an index file that fully covers chunks.
     index_path = settings.INDEX_DIR / f"{org_name}-{repo_name}.bin"
     # TODO: Don't hardcode the dimension
