@@ -180,6 +180,8 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     ):
         if path.is_dir():
             continue
+        if path == default_branch_path:
+            continue
         if ".git" in path.parts:
             continue
 
