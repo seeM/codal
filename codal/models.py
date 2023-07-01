@@ -67,36 +67,9 @@ class Org(Base):
     repos: Mapped[List[Repo]] = relationship(back_populates="org")
 
 
-class Repo(Base):
-    __tablename__ = "repos"
-
-    id: Mapped[int] = mapped_column(autoincrement="ignore_fk", primary_key=True)
-    org_id: Mapped[int] = mapped_column(ForeignKey("orgs.id"))
-    name: Mapped[str]
-
-    head_commit_id: Mapped[Optional[int]] = mapped_column(ForeignKey("commits.id"))
-    default_branch: Mapped[Optional[str]] = mapped_column()
-
-    org: Mapped[Org] = relationship(back_populates="repos")
-    head_commit: Mapped[Commit] = relationship(
-        foreign_keys=head_commit_id, post_update=True
-    )
-    commits: Mapped[List[Commit]] = relationship(
-        back_populates="repo", foreign_keys="Commit.repo_id"
-    )
-    documents: Mapped[List[Document]] = relationship(back_populates="repo")
-
-    __table_args__ = (
-        ForeignKeyConstraint(
-            ["id", "head_commit_id"], ["commits.repo_id", "commits.id"]
-        ),
-        Index(None, org_id, "name", unique=True),
-    )
-
-    def __repr__(self) -> str:
-        return f"<Repo {self.org.name}/{self.name}>"
-
-
+# See https://docs.sqlalchemy.org/en/20/orm/relationship_persistence.html#rows-that-point-to-themselves-mutually-dependent-rows
+# for a description of how Repo and Commit are configured. Repo is like Widget and Commit like Entry
+# in their example.
 class Commit(Base):
     __tablename__ = "commits"
 
@@ -112,12 +85,56 @@ class Commit(Base):
     committer_email: Mapped[Optional[str]]
     committed_datetime: Mapped[datetime]
 
+    __table_args__ = (
+        UniqueConstraint("repo_id", "sha"),
+        # TODO: Including this because it's in the SQLAlchemy example, but not yet sure why
+        UniqueConstraint("id", "repo_id"),
+    )
+
     repo: Mapped[Repo] = relationship(back_populates="commits", foreign_keys=repo_id)
     document_versions: Mapped[List[DocumentVersion]] = relationship(
         back_populates="commit"
     )
 
-    __table_args__ = (UniqueConstraint("repo_id", "sha"),)
+    def __repr__(self) -> str:
+        return f"<Commit {self.repo.org.name}/{self.repo.name}/{self.sha[:7]}>"
+
+
+class Repo(Base):
+    __tablename__ = "repos"
+
+    id: Mapped[int] = mapped_column(autoincrement="ignore_fk", primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("orgs.id"))
+    name: Mapped[str]
+
+    head_commit_id: Mapped[Optional[int]] = mapped_column()
+    default_branch: Mapped[Optional[str]] = mapped_column()
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            # This repo's head_commit_id points to a commit whose repo_id points back to this repo.
+            # See SQLAlchemy doc linked above for more.
+            ["id", "head_commit_id"],
+            ["commits.repo_id", "commits.id"],
+        ),
+        Index(None, org_id, "name", unique=True),
+    )
+
+    org: Mapped[Org] = relationship(back_populates="repos")
+    head_commit: Mapped[Commit] = relationship(
+        primaryjoin=head_commit_id == Commit.id,
+        foreign_keys=head_commit_id,
+        post_update=True,
+    )
+    commits: Mapped[List[Commit]] = relationship(
+        back_populates="repo",
+        primaryjoin=id == Commit.repo_id,
+        foreign_keys=Commit.repo_id,
+    )
+    documents: Mapped[List[Document]] = relationship(back_populates="repo")
+
+    def __repr__(self) -> str:
+        return f"<Repo {self.org.name}/{self.name}>"
 
 
 class Document(Base):
