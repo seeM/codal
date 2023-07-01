@@ -1,6 +1,7 @@
-# export CODAL_CACHE_DIR=$(mktemp -d)
-export CODAL_CACHE_DIR=mytmpdir
+#! /bin/bash
 
-pytest $@
+CODAL_CACHE_DIR=$(mktemp -d)
 
-rm -rf $CODAL_CACHE_DIR
+CODAL_CACHE_DIR="$CODAL_CACHE_DIR" pytest "$@"
+
+rm -rf "$CODAL_CACHE_DIR"
