@@ -26,7 +26,7 @@ from .schemas import (
     RepoCreate,
     RepoUpdate,
 )
-from .settings import INDEX_DIR, EMBEDDING_MODEL_NAME, REPO_DIR
+from .settings import settings
 from .version import __version__
 
 
@@ -112,7 +112,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
 
     # Clone or pull the repo
     git_url = f"https://github.com/{org_name}/{repo_name}.git"
-    git_dir = REPO_DIR / org_name / repo_name
+    git_dir = settings.REPO_DIR / org_name / repo_name
     default_branch_path = git_dir / ".codal" / "DEFAULT_BRANCH"
     if (git_dir / ".git").exists():
         git_repo = GitRepo(git_dir)
@@ -172,7 +172,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     prev_head = repo.head_commit
 
     # Read documents from the repo
-    encoder = tiktoken.encoding_for_model(EMBEDDING_MODEL_NAME)
+    encoder = tiktoken.encoding_for_model(settings.EMBEDDING_MODEL_NAME)
     document_versions = []
     for path in progress(
         list(git_dir.rglob("*")),
@@ -349,7 +349,7 @@ def reindex(repo: Repo, db: Session) -> hnswlib.Index:
 
     # TODO: Safely overwrite the previous index?
     # TODO: Make Repo property?
-    index_path = INDEX_DIR / f"{repo.org.name}-{repo.name}.bin"
+    index_path = settings.INDEX_DIR / f"{repo.org.name}-{repo.name}.bin"
     index_path.parent.mkdir(exist_ok=True, parents=True)
     index.save_index(str(index_path))
     return index
@@ -362,7 +362,7 @@ def _ask(repo, question: str, db: Session, num_neighbors=10, debug=False) -> str
     repo = _get_repo_or_raise(db, repo)
 
     # TODO: Make Repo property
-    index_path = INDEX_DIR / f"{repo.org.name}-{repo.name}.bin"
+    index_path = settings.INDEX_DIR / f"{repo.org.name}-{repo.name}.bin"
 
     # TODO: Do we really have to store the dimension somewhere?
     #       SQL table?

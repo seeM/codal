@@ -1,12 +1,32 @@
-import os
 from pathlib import Path
 
-_DEFAULT_XDG_CACHE_HOME = Path.home() / ".cache"
-XDG_CACHE_HOME = Path(os.getenv("XDG_CACHE_HOME", _DEFAULT_XDG_CACHE_HOME)).expanduser()
-CACHE_DIR = XDG_CACHE_HOME / "codal"
-REPO_DIR = CACHE_DIR / "repos"
-INDEX_DIR = CACHE_DIR / "indexes"
-DB_PATH = CACHE_DIR / "db.sqlite"
+from pydantic import BaseSettings
 
-EMBEDDING_MODEL_NAME = "text-embedding-ada-002"
-COMPLETION_MODEL_NAME = "gpt-4"
+
+class Settings(BaseSettings):
+    CACHE_DIR: Path = Path.home() / ".cache/codal"
+    EMBEDDING_MODEL_NAME: str = "text-embedding-ada-002"
+    COMPLETION_MODEL_NAME: str = "gpt-4"
+
+    @property
+    def REPO_DIR(self) -> Path:
+        return self.CACHE_DIR / "repos"
+
+    @property
+    def INDEX_DIR(self) -> Path:
+        return self.CACHE_DIR / "indexes"
+
+    @property
+    def DB_PATH(self) -> Path:
+        return self.CACHE_DIR / "db.sqlite"
+
+    @property
+    def SQLALCHEMY_DATABASE_URI(self) -> str:
+        return f"sqlite:///{self.DB_PATH}"
+
+    class Config:
+        env_prefix = "CODAL_"
+        case_sensitive = True
+
+
+settings = Settings()

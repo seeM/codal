@@ -3,11 +3,11 @@ from typing import Iterator, Optional
 
 import numpy as np
 import openai
-from codal.settings import COMPLETION_MODEL_NAME, EMBEDDING_MODEL_NAME
+from codal.settings import settings
 
 
 def get_embedding(
-    text, model=EMBEDDING_MODEL_NAME, max_attempts=5, retry_delay=1
+    text, model=settings.EMBEDDING_MODEL_NAME, max_attempts=5, retry_delay=1
 ) -> np.ndarray:
     text = text.replace("\n", " ")
     for attempt in range(max_attempts):
@@ -27,7 +27,7 @@ def get_embedding(
 
 
 def get_chat_completion(
-    prompt: str, *, model=COMPLETION_MODEL_NAME
+    prompt: str, *, model=settings.COMPLETION_MODEL_NAME
 ) -> Iterator[Optional[str]]:
     for chunk in openai.ChatCompletion.create(
         model=model,
