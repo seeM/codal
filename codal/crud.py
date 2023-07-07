@@ -6,11 +6,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from codal.models import Repo
-from codal.schemas import RepoCreate
-
 from .database import Base
-from .models import Chunk, Commit, Document, DocumentVersion, Org, Repo
+from .models import Chunk, Commit, Document, DocumentVersion
 from .schemas import (
     ChunkCreate,
     ChunkUpdate,
@@ -20,10 +17,6 @@ from .schemas import (
     DocumentUpdate,
     DocumentVersionCreate,
     DocumentVersionUpdate,
-    OrgCreate,
-    OrgUpdate,
-    RepoCreate,
-    RepoUpdate,
 )
 
 ModelType = TypeVar("ModelType", bound=Base)
@@ -61,34 +54,6 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         db.commit()
         db.refresh(db_obj)
         return db_obj
-
-
-class CRUDOrg(CRUDBase[Org, OrgCreate, OrgUpdate]):
-    def get(self, db: Session, *, name: str) -> Optional[Org]:
-        org = db.execute(select(Org).where(Org.name == name)).scalar_one_or_none()
-        return org
-
-    def get_or_create(self, db: Session, obj_in: OrgCreate) -> Org:
-        org = self.get(db, name=obj_in.name)
-        if org:
-            return org
-        return self.create(db, obj_in=obj_in)
-
-
-class CRUDRepo(CRUDBase[Repo, RepoCreate, RepoUpdate]):
-    def get(self, db: Session, *, name: str, org_name: str) -> Optional[Repo]:
-        repo = db.execute(
-            select(Repo).join(Org).where(Repo.name == name, Org.name == org_name)
-        ).scalar_one_or_none()
-        return repo
-
-    def get_or_create(self, db: Session, obj_in: RepoCreate) -> Repo:
-        repo = db.execute(
-            select(Repo).where(Repo.org_id == obj_in.org_id, Repo.name == obj_in.name)
-        ).scalar_one_or_none()
-        if repo:
-            return repo
-        return self.create(db, obj_in=obj_in)
 
 
 class CRUDCommit(CRUDBase[Commit, CommitCreate, CommitUpdate]):
@@ -157,7 +122,7 @@ class CRUDDocumentVersion(
 
 
 class CRUDChunk(CRUDBase[Chunk, ChunkCreate, ChunkUpdate]):
-    def get_multi_by_repo(self, db: Session, *, repo: Repo) -> Sequence[Chunk]:
+    def get_multi_by_repo(self, db: Session, *, repo) -> Sequence[Chunk]:
         chunks = (
             db.execute(
                 (
@@ -165,8 +130,8 @@ class CRUDChunk(CRUDBase[Chunk, ChunkCreate, ChunkUpdate]):
                     .join(Chunk.document_versions)
                     .join(DocumentVersion.document)
                     .where(
-                        Document.repo == repo,
-                        DocumentVersion.commit == repo.head_commit,
+                        Document.repo_id == repo["id"],
+                        DocumentVersion.commit_id == repo["head_commit_id"],
                     )
                 )
             )
@@ -180,8 +145,6 @@ class CRUDChunk(CRUDBase[Chunk, ChunkCreate, ChunkUpdate]):
         return chunks
 
 
-org = CRUDOrg(Org)
-repo = CRUDRepo(Repo)
 commit = CRUDCommit(Commit)
 document = CRUDDocument(Document)
 document_version = CRUDDocumentVersion(DocumentVersion)

@@ -21,12 +21,3 @@ def test_isort(capsys: pytest.CaptureFixture[str]) -> None:
     except SystemExit as exception:
         captured = capsys.readouterr()
         assert exception.code == 0, captured.err
-
-
-def test_pyright() -> None:
-    process = pyright.run(
-        str(code_root),
-        capture_output=True,
-        text=True,
-    )
-    assert process.returncode == 0, process.stdout

@@ -13,30 +13,6 @@ from pydantic import BaseModel
 from .models import Chunk
 
 
-class OrgCreate(BaseModel):
-    name: str
-
-
-class OrgUpdate(BaseModel):
-    pass
-
-
-class RepoBase(BaseModel):
-    org_id: Optional[int] = None
-    name: Optional[str] = None
-    head_commit_id: Optional[int] = None
-    default_branch: Optional[str] = None
-
-
-class RepoCreate(RepoBase):
-    org_id: int
-    name: str
-
-
-class RepoUpdate(RepoBase):
-    pass
-
-
 class CommitBase(BaseModel):
     repo_id: Optional[int] = None
     sha: Optional[str] = None

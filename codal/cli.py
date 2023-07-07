@@ -25,9 +25,6 @@ from .schemas import (
     DocumentCreate,
     DocumentVersionCreate,
     DocumentVersionUpdate,
-    OrgCreate,
-    RepoCreate,
-    RepoUpdate,
 )
 from .settings import settings
 from .version import __version__
@@ -42,7 +39,7 @@ def user_dir():
 
 
 def db_path():
-    return user_dir() / "codal.db"
+    return user_dir() / "db.sqlite"
 
 
 def pretty_print(obj: Any):
@@ -152,18 +149,38 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
 
     # Get or create the organization and repo
     org_name, repo_name = repo_arg.split("/")
-    org = crud.org.get_or_create(db, OrgCreate(name=org_name))
-    repo = crud.repo.get_or_create(db, RepoCreate(name=repo_name, org_id=org.id))
+
+    # TODO: Wonder if we should have `name`` be the primary key?
+    try:
+        org = list(db2["orgs"].rows_where("name = ?", [org_name]))[0]
+    except IndexError:
+        org = {"name": org_name}
+        org["id"] = db2["orgs"].insert(org).last_pk
+
+    try:
+        repo = list(
+            db2["repos"].rows_where("name = ? and org_id = ?", [repo_name, org["id"]])
+        )[0]
+    except IndexError:
+        repo = {
+            "org_id": org["id"],
+            "name": repo_name,
+            "default_branch": None,
+            "head_commit_id": None,
+        }
+        repo["id"] = db2["repos"].insert(repo).last_pk
+
+    repo["org"] = org
 
     # Update the default branch
-    if repo.default_branch is None:
-        default_branch = default_branch_path.read_text().strip()
-        repo = crud.repo.update(db, repo, RepoUpdate(default_branch=default_branch))
+    if repo["default_branch"] is None:
+        repo["default_branch"] = default_branch_path.read_text().strip()
+        db2["repos"].update(repo["id"], {"default_branch": repo["default_branch"]})
 
-    assert repo.default_branch is not None
+    assert repo["default_branch"] is not None
 
     if head is None:
-        head = f"origin/{repo.default_branch}"
+        head = f"origin/{repo['default_branch']}"
 
     if git_repo.head.commit != git_repo.commit(head):
         click.echo(f"Checking out: {head}")
@@ -173,7 +190,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     commit = crud.commit.get_or_create(
         db,
         CommitCreate(
-            repo_id=repo.id,
+            repo_id=repo["id"],
             sha=git_commit.hexsha,
             message=str(git_commit.message),
             author_name=git_commit.author.name,
@@ -185,7 +202,9 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         ),
     )
 
-    prev_head = repo.head_commit
+    prev_head = (
+        db2["commits"].get(repo["head_commit_id"]) if repo["head_commit_id"] else None
+    )
 
     # Read documents from the repo
     encoder = tiktoken.encoding_for_model(settings.EMBEDDING_MODEL_NAME)
@@ -214,7 +233,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
 
             # Get or create the document and version
             document = crud.document.get_or_create(
-                db, DocumentCreate(repo_id=repo.id, path=path)
+                db, DocumentCreate(repo_id=repo["id"], path=path)
             )
             document_version = crud.document_version.get_or_create(
                 db,
@@ -231,7 +250,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
                 previous_document_version = crud.document_version.get(
                     db,
                     document_id=document.id,
-                    commit_id=prev_head.id,
+                    commit_id=prev_head["id"],
                 )
                 if (
                     previous_document_version is not None
@@ -312,8 +331,10 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         )
 
     # Finally, bump the head commit
-    if repo.head_commit != commit:
-        crud.repo.update(db, repo, RepoUpdate(head_commit_id=commit.id))
+    if repo["head_commit_id"] != commit.id:
+        repo["head_commit"] = commit
+        repo["head_commit_id"] = commit.id
+        db2["repos"].update(repo["id"], {"head_commit_id": repo["head_commit_id"]})
         click.echo(f"Repo head updated: {commit.sha[:7]}", err=True)
 
     reindex(repo, db)
@@ -330,7 +351,7 @@ def _get_repo_or_raise(db: Session, org_and_repo: str) -> Repo:
     return repo
 
 
-def reindex(repo: Repo, db: Session) -> hnswlib.Index:
+def reindex(repo, db: Session) -> hnswlib.Index:
     """
     Rebuild the vector search index for a repo.
     """
@@ -343,7 +364,7 @@ def reindex(repo: Repo, db: Session) -> hnswlib.Index:
     chunks = [chunk for chunk in chunks if chunk.document.path.name != "LICENSE"]
 
     click.echo(
-        f"Found {len(chunks)} chunks for this repo at head: {repo.head_commit.sha}"
+        f"Found {len(chunks)} chunks for this repo at head: {repo['head_commit'].sha}"
     )
 
     embeddings = np.array([chunk.embedding for chunk in chunks])
@@ -361,7 +382,7 @@ def reindex(repo: Repo, db: Session) -> hnswlib.Index:
 
     # TODO: Safely overwrite the previous index?
     # TODO: Make Repo property?
-    index_path = settings.INDEX_DIR / f"{repo.org.name}-{repo.name}.bin"
+    index_path = settings.INDEX_DIR / f"{repo['org']['name']}-{repo['name']}.bin"
     index_path.parent.mkdir(exist_ok=True, parents=True)
     index.save_index(str(index_path))
     return index

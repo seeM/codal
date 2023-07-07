@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Iterable, Sequence, Set
 
 import pytest
+import sqlite_utils
 from click.testing import CliRunner
 from git.repo import Repo as GitRepo
 from sqlalchemy import inspect, select
@@ -84,21 +85,24 @@ def test_embed_first_run(runner: CliRunner, db: Session) -> None:
     # Checks out the latest commit
     assert git_repo.head.commit.hexsha == head_commit_sha
 
+    # TODO: Replace with an in-memory database?
+    db2 = sqlite_utils.Database(settings.DB_PATH)
+
     # Creates an Org in the database
-    org = db.execute(select(Org)).scalar_one()
-    assert org.name == org_name
+    [org] = db2["orgs"].rows
+    assert org["name"] == org_name
 
     # Creates a Repo in the database
-    repo = db.execute(select(Repo)).scalar_one()
-    assert repo.org_id == org.id
-    assert repo.name == repo_name
-    assert repo.default_branch == "main"
-    assert repo.head_commit.sha == head_commit_sha
+    [repo] = db2["repos"].rows
+    assert repo["org_id"] == org["id"]
+    assert repo["name"] == repo_name
+    assert repo["default_branch"] == "main"
+    assert repo["head_commit_id"] == 1
 
     # Creates a Commit in the database
     commit = db.execute(select(Commit)).scalar_one()
     committed_datetime = datetime(2023, 6, 30, 14, 1, 38)
-    assert commit.repo_id == repo.id
+    assert commit.repo_id == repo["id"]
     assert commit.sha == head_commit_sha
     assert commit.message == "rename"
     assert commit.author_name == "Wasim Lorgat"
@@ -110,7 +114,7 @@ def test_embed_first_run(runner: CliRunner, db: Session) -> None:
 
     # Creates a Document in the database
     document = db.execute(select(Document)).scalar_one()
-    assert document.repo_id == repo.id
+    assert document.repo_id == repo["id"]
     assert document.path == Path("README.md")
 
     # Creates a DocumentVersion in the database
@@ -151,16 +155,19 @@ def test_embed_updated_file(runner: CliRunner, db: Session) -> None:
     git_repo = GitRepo(git_dir)
     assert git_repo.head.commit.hexsha == head_commit_sha
 
+    # TODO: Replace with an in-memory database?
+    db2 = sqlite_utils.Database(settings.DB_PATH)
+
     # Database Repo points to the new head
-    repo = db.execute(select(Repo)).scalar_one()
-    assert repo.head_commit.sha == head_commit_sha
+    [repo] = db2["repos"].rows
+    assert db2["commits"].get(repo["head_commit_id"])["sha"] == head_commit_sha
 
     # New Commit in the database
     commits = db.execute(select(Commit)).scalars().all()
     assert len(commits) == 2
     commit = next(commit for commit in commits if commit.sha == head_commit_sha)
     committed_datetime = datetime(2023, 7, 1, 11, 32, 49)
-    assert commit.repo_id == repo.id
+    assert commit.repo_id == repo["id"]
     assert commit.sha == head_commit_sha
     assert commit.message == "update readme\n"
     assert commit.author_name == "seem"
@@ -172,7 +179,7 @@ def test_embed_updated_file(runner: CliRunner, db: Session) -> None:
 
     # Still the same Document in the database
     document = db.execute(select(Document)).scalar_one()
-    assert document.repo_id == repo.id
+    assert document.repo_id == repo["id"]
     assert document.path == Path("README.md")
 
     # New DocumentVersion in the database
