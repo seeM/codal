@@ -67,7 +67,7 @@ def test_embed_first_run(runner: CliRunner) -> None:
 
     # Creates a Commit in the database
     [commit] = db["commits"].rows
-    committed_datetime = "2023-06-30 14:01:38.000000"
+    committed_datetime = "2023-06-30T14:01:38+02:00"
     assert commit["repo_id"] == repo["id"]
     assert commit["sha"] == head_commit_sha
     assert commit["message"] == "rename"
@@ -132,7 +132,7 @@ def test_embed_updated_file(runner: CliRunner) -> None:
     commits = list(db["commits"].rows)
     assert len(commits) == 2
     commit = next(commit for commit in commits if commit["sha"] == head_commit_sha)
-    committed_datetime = "2023-07-01 11:32:49.000000"
+    committed_datetime = "2023-07-01T11:32:49+02:00"
     assert commit["repo_id"] == repo["id"]
     assert commit["sha"] == head_commit_sha
     assert commit["message"] == "update readme\n"

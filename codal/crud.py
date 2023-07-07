@@ -7,12 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .database import Base
-from .models import Chunk, Commit, Document, DocumentVersion
+from .models import Chunk, Document, DocumentVersion
 from .schemas import (
     ChunkCreate,
     ChunkUpdate,
-    CommitCreate,
-    CommitUpdate,
     DocumentCreate,
     DocumentUpdate,
     DocumentVersionCreate,
@@ -54,20 +52,6 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         db.commit()
         db.refresh(db_obj)
         return db_obj
-
-
-class CRUDCommit(CRUDBase[Commit, CommitCreate, CommitUpdate]):
-    def get(self, db: Session, *, repo_id: int, sha: str) -> Optional[Commit]:
-        commit = db.execute(
-            select(Commit).where(Commit.repo_id == repo_id, Commit.sha == sha)
-        ).scalar_one_or_none()
-        return commit
-
-    def get_or_create(self, db: Session, obj_in: CommitCreate) -> Commit:
-        commit = self.get(db, repo_id=obj_in.repo_id, sha=obj_in.sha)
-        if commit:
-            return commit
-        return self.create(db, obj_in=obj_in)
 
 
 class CRUDDocument(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
@@ -145,7 +129,6 @@ class CRUDChunk(CRUDBase[Chunk, ChunkCreate, ChunkUpdate]):
         return chunks
 
 
-commit = CRUDCommit(Commit)
 document = CRUDDocument(Document)
 document_version = CRUDDocumentVersion(DocumentVersion)
 chunk = CRUDChunk(Chunk)

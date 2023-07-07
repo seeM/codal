@@ -20,12 +20,7 @@ from .ai import get_chat_completion, get_embedding, load_index
 from .database import SessionLocal
 from .migrations import migrate
 from .models import Chunk, DocumentVersion, Repo
-from .schemas import (
-    CommitCreate,
-    DocumentCreate,
-    DocumentVersionCreate,
-    DocumentVersionUpdate,
-)
+from .schemas import DocumentCreate, DocumentVersionCreate, DocumentVersionUpdate
 from .settings import settings
 from .version import __version__
 
@@ -187,20 +182,26 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         git_repo.git.checkout(head)
 
     git_commit = git_repo.head.commit
-    commit = crud.commit.get_or_create(
-        db,
-        CommitCreate(
-            repo_id=repo["id"],
-            sha=git_commit.hexsha,
-            message=str(git_commit.message),
-            author_name=git_commit.author.name,
-            author_email=git_commit.author.email,
-            authored_datetime=git_commit.authored_datetime,
-            committer_name=git_commit.committer.name,
-            committer_email=git_commit.committer.email,
-            committed_datetime=git_commit.committed_datetime,
-        ),
-    )
+    try:
+        commit = list(
+            db2["commits"].rows_where(
+                "sha = ? and repo_id = ?", [git_commit.hexsha, repo["id"]]
+            )
+        )[0]
+    except IndexError:
+        commit = {
+            "repo_id": repo["id"],
+            "sha": git_commit.hexsha,
+            "message": str(git_commit.message),
+            "author_name": git_commit.author.name,
+            "author_email": git_commit.author.email,
+            "authored_datetime": git_commit.authored_datetime,
+            "committer_name": git_commit.committer.name,
+            "committer_email": git_commit.committer.email,
+            "committed_datetime": git_commit.committed_datetime,
+        }
+        commit["id"] = db2["commits"].insert(commit).last_pk
+        commit["repo"] = repo
 
     prev_head = (
         db2["commits"].get(repo["head_commit_id"]) if repo["head_commit_id"] else None
@@ -239,7 +240,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
                 db,
                 DocumentVersionCreate(
                     document_id=document.id,
-                    commit_id=commit.id,
+                    commit_id=commit["id"],
                     text=text,
                     num_tokens=len(encoder.encode(text)),
                 ),
@@ -331,11 +332,11 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         )
 
     # Finally, bump the head commit
-    if repo["head_commit_id"] != commit.id:
+    if repo["head_commit_id"] != commit["id"]:
         repo["head_commit"] = commit
-        repo["head_commit_id"] = commit.id
+        repo["head_commit_id"] = commit["id"]
         db2["repos"].update(repo["id"], {"head_commit_id": repo["head_commit_id"]})
-        click.echo(f"Repo head updated: {commit.sha[:7]}", err=True)
+        click.echo(f"Repo head updated: {commit['sha'][:7]}", err=True)
 
     reindex(repo, db)
 
@@ -364,7 +365,7 @@ def reindex(repo, db: Session) -> hnswlib.Index:
     chunks = [chunk for chunk in chunks if chunk.document.path.name != "LICENSE"]
 
     click.echo(
-        f"Found {len(chunks)} chunks for this repo at head: {repo['head_commit'].sha}"
+        f"Found {len(chunks)} chunks for this repo at head: {repo['head_commit']['sha']}"
     )
 
     embeddings = np.array([chunk.embedding for chunk in chunks])
