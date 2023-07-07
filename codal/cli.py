@@ -1,3 +1,4 @@
+import os
 from functools import wraps
 from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence, Tuple, TypeVar
@@ -5,6 +6,7 @@ from typing import Any, Iterable, Optional, Sequence, Tuple, TypeVar
 import click
 import hnswlib
 import numpy as np
+import sqlite_utils
 import tiktoken
 import uvicorn
 from git.exc import GitCommandError
@@ -15,7 +17,8 @@ from sqlalchemy.orm import Session
 
 from . import crud
 from .ai import get_chat_completion, get_embedding, load_index
-from .database import SessionLocal, migrate
+from .database import SessionLocal
+from .migrations import migrate
 from .models import Chunk, DocumentVersion, Repo
 from .schemas import (
     CommitCreate,
@@ -28,6 +31,18 @@ from .schemas import (
 )
 from .settings import settings
 from .version import __version__
+
+
+def user_dir():
+    # TODO: Change to CODAL_USER_PATH
+    codal_user_path = os.environ.get("CODAL_CACHE_DIR")
+    if codal_user_path:
+        return Path(codal_user_path)
+    return Path(click.get_app_dir("Codal"))
+
+
+def db_path():
+    return user_dir() / "codal.db"
 
 
 def pretty_print(obj: Any):
@@ -64,7 +79,6 @@ def progress(it: Sequence[T], prefix: str) -> Iterable[T]:
 def _provide_db(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
-        migrate()
         with SessionLocal() as db:
             kwargs["db"] = db
             return func(*args, **kwargs)
@@ -131,6 +145,10 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         # Store the default branch as a file so that we can recover it if the db is lost
         default_branch_path.parent.mkdir(parents=True, exist_ok=True)
         default_branch_path.write_text(git_repo.active_branch.name + "\n")
+
+    _db_path = db_path()
+    db2 = sqlite_utils.Database(_db_path)
+    migrate(db2)
 
     # Get or create the organization and repo
     org_name, repo_name = repo_arg.split("/")
