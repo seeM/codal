@@ -26,5 +26,7 @@ jobs:
           pip install -e '.[test]'
           pip freeze
       - name: Run tests
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           ./scripts/test.sh
