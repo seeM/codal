@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, Generic, List, Optional, Sequence, Type, TypeVar, Union
+from typing import Any, Dict, Generic, List, Sequence, Type, TypeVar, Union
 
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
@@ -8,12 +8,7 @@ from sqlalchemy.orm import Session
 
 from .database import Base
 from .models import Chunk, Document, DocumentVersion
-from .schemas import (
-    ChunkCreate,
-    ChunkUpdate,
-    DocumentVersionCreate,
-    DocumentVersionUpdate,
-)
+from .schemas import ChunkCreate, ChunkUpdate
 
 ModelType = TypeVar("ModelType", bound=Base)
 CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
@@ -52,43 +47,6 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         return db_obj
 
 
-class CRUDDocumentVersion(
-    CRUDBase[DocumentVersion, DocumentVersionCreate, DocumentVersionUpdate]
-):
-    def get(
-        self, db: Session, *, document_id: int, commit_id: int
-    ) -> Optional[DocumentVersion]:
-        document_version = db.execute(
-            select(DocumentVersion).where(
-                DocumentVersion.document_id == document_id,
-                DocumentVersion.commit_id == commit_id,
-            )
-        ).scalar_one_or_none()
-        return document_version
-
-    def get_or_create(
-        self, db: Session, obj_in: DocumentVersionCreate
-    ) -> DocumentVersion:
-        document_version = self.get(
-            db, document_id=obj_in.document_id, commit_id=obj_in.commit_id
-        )
-        if document_version:
-            return document_version
-        return self.create(db, obj_in=obj_in)
-
-    def set_chunks(
-        self, db: Session, document_version: DocumentVersion, chunks: List[Chunk]
-    ) -> DocumentVersion:
-        # NOTE: We have to access document_version.chunks, else `update` doesn't override it,
-        #       possibly due to SQLAlchemy's lazy relationship loading.
-        # TODO: Is there a better way to handle this in `update` or via schemas?
-        #       Maybe this is why we should use ids in the schemas?
-        assert document_version.chunks == []
-        return self.update(
-            db, document_version, DocumentVersionUpdate(chunks=chunks, processed=True)
-        )
-
-
 class CRUDChunk(CRUDBase[Chunk, ChunkCreate, ChunkUpdate]):
     def get_multi_by_repo(self, db: Session, *, repo) -> Sequence[Chunk]:
         chunks = (
@@ -113,5 +71,4 @@ class CRUDChunk(CRUDBase[Chunk, ChunkCreate, ChunkUpdate]):
         return chunks
 
 
-document_version = CRUDDocumentVersion(DocumentVersion)
 chunk = CRUDChunk(Chunk)

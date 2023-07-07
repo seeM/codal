@@ -20,7 +20,6 @@ from .ai import get_chat_completion, get_embedding, load_index
 from .database import SessionLocal
 from .migrations import migrate
 from .models import Chunk, DocumentVersion, Repo
-from .schemas import DocumentVersionCreate, DocumentVersionUpdate
 from .settings import settings
 from .version import __version__
 
@@ -246,30 +245,65 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
                 }
                 document["id"] = db2["documents"].insert(document).last_pk
 
-            document_version = crud.document_version.get_or_create(
-                db,
-                DocumentVersionCreate(
-                    document_id=document["id"],
-                    commit_id=commit["id"],
-                    text=text,
-                    num_tokens=len(encoder.encode(text)),
-                ),
-            )
+            try:
+                document_version = list(
+                    db2["document_versions"].rows_where(
+                        "document_id = ? and commit_id = ?",
+                        [document["id"], commit["id"]],
+                    )
+                )[0]
+            except IndexError:
+                document_version = {
+                    "document_id": document["id"],
+                    "commit_id": commit["id"],
+                    "text": text,
+                    "num_tokens": len(encoder.encode(text)),
+                    "processed": False,
+                }
+                document_version["id"] = (
+                    db2["document_versions"].insert(document_version).last_pk
+                )
+                # document_version["document"] = document
 
             # Use the chunks from the previous head, if we can.
-            if not document_version.processed and prev_head is not None:
-                previous_document_version = crud.document_version.get(
-                    db,
-                    document_id=document["id"],
-                    commit_id=prev_head["id"],
-                )
+            if not document_version["processed"] and prev_head is not None:
+                try:
+                    previous_document_version = list(
+                        db2["document_versions"].rows_where(
+                            "document_id = ? and commit_id = ?",
+                            [document["id"], prev_head["id"]],
+                        )
+                    )[0]
+                except IndexError:
+                    previous_document_version = None
                 if (
                     previous_document_version is not None
-                    and previous_document_version.processed
-                    and document_version.text == previous_document_version.text
+                    and previous_document_version["processed"]
+                    and document_version["text"] == previous_document_version["text"]
                 ):
-                    crud.document_version.set_chunks(
-                        db, document_version, previous_document_version.chunks
+                    # TODO: assert no existing chunks?
+                    db2["document_version_chunks"].delete_where(
+                        "document_version_id = ?", [document_version["id"]]
+                    )
+                    previous_document_version_chunks = list(
+                        db2["document_version_chunks"].rows_where(
+                            "document_version_id = ?",
+                            [previous_document_version["id"]],
+                        )
+                    )
+                    db2["document_version_chunks"].insert_all(
+                        [
+                            {
+                                **document_version_chunk,
+                                "document_version_id": document_version["id"],
+                            }
+                            for document_version_chunk in previous_document_version_chunks
+                        ]
+                    )
+                    document_version["processed"] = True
+                    db2["document_versions"].update(
+                        document_version["id"],
+                        {"processed": document_version["processed"]},
                     )
 
             document_versions.append(document_version)
@@ -277,14 +311,14 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     unprocessed_document_versions = [
         document_version
         for document_version in document_versions
-        if not document_version.processed
+        if not document_version["processed"]
     ]
 
     # Log stats about documents, tokens, and cost to process
     dollars_per_1k_tokens = 0.0004
     num_unprocessed_documents = len(unprocessed_document_versions)
     num_unprocessed_tokens = sum(
-        document_version.num_tokens
+        document_version["num_tokens"]
         for document_version in unprocessed_document_versions
     )
     estimated_cost = dollars_per_1k_tokens * num_unprocessed_tokens / 1000
@@ -306,12 +340,12 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
         chunks = []
         start = 0
         end = start
-        for chunk_text in splitter.split_text(document_version.text):
+        for chunk_text in splitter.split_text(document_version["text"]):
             end += len(chunk_text)
 
             embedding = get_embedding(chunk_text)
             chunk = Chunk(
-                document=document_version.document,
+                document_id=document_version["document_id"],
                 start=start,
                 end=end,
                 text=chunk_text,
@@ -329,7 +363,24 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
                 num_unprocessed_tokens,
             )
 
-        crud.document_version.set_chunks(db, document_version, chunks)
+        db.add_all(chunks)
+        db.commit()
+
+        # TODO: assert no existing chunks?
+        db2["document_version_chunks"].delete_where(
+            "document_version_id = ?", [document_version["id"]]
+        )
+        db2["document_version_chunks"].insert_all(
+            [
+                {"document_version_id": document_version["id"], "chunk_id": chunk.id}
+                for chunk in chunks
+            ]
+        )
+        document_version["processed"] = True
+        db2["document_versions"].update(
+            document_version["id"],
+            {"processed": document_version["processed"]},
+        )
 
     # NOTE: I'm not sure why chunk tokens don't add up to document version tokens.
     #       Maybe because of the way we split the text e.g. stripping chunks?
@@ -526,6 +577,15 @@ def check(db: Session, fix: bool):
     """
     Check that the database is in a consistent state.
     """
+
+    db2 = sqlite_utils.Database(settings.DB_PATH)
+
+    # TODO: Continue here
+    document_version_ids = [
+        row["document_version_id"]
+        for row in db2["document_version_chunks"].rows_where()
+    ]
+    document_versions = list(db2["document_versions"].rows_where("processed = 1"))
     document_versions = (
         db.execute(
             select(DocumentVersion).where(
@@ -543,6 +603,7 @@ def check(db: Session, fix: bool):
         )
         if fix:
             for document_version in document_versions:
-                crud.document_version.update(
-                    db, document_version, DocumentVersionUpdate(processed=False)
-                )
+                db2
+                # crud.document_version.update(
+                #     db, document_version, DocumentVersionUpdate(processed=False)
+                # )
