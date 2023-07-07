@@ -1,9 +1,10 @@
 from importlib.resources import files
 
-from alembic.command import upgrade
-from alembic.config import Config
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+
+from alembic.command import upgrade
+from alembic.config import Config
 
 from .settings import settings
 
