@@ -54,7 +54,7 @@ def test_embed_invalid_repo(runner: CliRunner) -> None:
     Running `embed` with an invalid repo identifier prints an error message.
     """
     result = runner.invoke(
-        cli, ["embed", "not-a-repo-identifier"], catch_exceptions=False
+        cli, ["embed", "not-a-repo-identifier"], catch_exceptions=False  # type: ignore
     )
     assert result.stderr.splitlines()[-1].startswith("Error: REPO")
     assert result.exit_code == 2
@@ -66,7 +66,7 @@ def test_embed_first_run(runner: CliRunner, db: Session) -> None:
     head_commit_sha = "f51a972d1c611636847bffddd868c3329f9588d1"
 
     result = runner.invoke(
-        cli,
+        cli,  # type: ignore
         ["embed", repo_arg, "--head", head_commit_sha],
         catch_exceptions=False,
     )
@@ -137,7 +137,7 @@ def test_embed_updated_file(runner: CliRunner, db: Session) -> None:
     head_commit_sha = "e1ed69c96180e7282d0b10f1bb36088a2789ccea"
 
     result = runner.invoke(
-        cli,
+        cli,  # type: ignore
         ["embed", repo_arg, "--head", head_commit_sha],
         catch_exceptions=False,
     )
@@ -212,7 +212,7 @@ def test_embed_new_file(runner: CliRunner, db: Session) -> None:
     prev_head_commit_sha = "e1ed69c96180e7282d0b10f1bb36088a2789ccea"
 
     result = runner.invoke(
-        cli,
+        cli,  # type: ignore
         ["embed", repo_arg, "--head", head_commit_sha],
         catch_exceptions=False,
     )
