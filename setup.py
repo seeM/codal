@@ -48,6 +48,7 @@ setup(
         "numpy",
         "openai",
         "SQLAlchemy",
+        "sqlite-utils",
         "tiktoken",
         "typing_extensions",
     ],

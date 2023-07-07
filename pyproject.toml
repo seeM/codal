@@ -7,7 +7,7 @@ known_third_party = ["alembic"]
 src_paths = ["codal", "experiments", "tests"]
 
 [tool.pyright]
-exclude = ["build"]
+exclude = ["build", "tests/test_migrations.py"]
 
 [tool.pytest.ini_options]
 filterwarnings = [
