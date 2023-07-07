@@ -31,8 +31,7 @@ def _inspect_table_names() -> Set[str]:
     return set(table_names)
 
 
-# NOTE: This test is currently order-dependent; it must run first since invoking `embed` calls
-#       migrate, and we reuse the same database for all tests.
+@pytest.mark.serial
 def test_migrate() -> None:
     """
     Running `migrate` creates all tables in the database.
@@ -49,6 +48,7 @@ def test_migrate() -> None:
     assert table_names == expected
 
 
+@pytest.mark.serial
 def test_embed_invalid_repo(runner: CliRunner) -> None:
     """
     Running `embed` with an invalid repo identifier prints an error message.
@@ -60,6 +60,7 @@ def test_embed_invalid_repo(runner: CliRunner) -> None:
     assert result.exit_code == 2
 
 
+@pytest.mark.serial
 def test_embed_first_run(runner: CliRunner, db: Session) -> None:
     repo_arg = "seem/test-codal-repo"
     org_name, repo_name = repo_arg.split("/")
@@ -131,6 +132,7 @@ def test_embed_first_run(runner: CliRunner, db: Session) -> None:
     _test_index(chunks, org_name, repo_name)
 
 
+@pytest.mark.serial
 def test_embed_updated_file(runner: CliRunner, db: Session) -> None:
     repo_arg = "seem/test-codal-repo"
     org_name, repo_name = repo_arg.split("/")
@@ -204,6 +206,7 @@ def test_embed_updated_file(runner: CliRunner, db: Session) -> None:
     _test_index(head_chunks, org_name, repo_name)
 
 
+@pytest.mark.serial
 def test_embed_new_file(runner: CliRunner, db: Session) -> None:
     repo_arg = "seem/test-codal-repo"
     org_name, repo_name = repo_arg.split("/")

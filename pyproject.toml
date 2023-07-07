@@ -8,3 +8,11 @@ src_paths = ["codal", "experiments", "tests"]
 
 [tool.pyright]
 exclude = ["build"]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:.*declarative_base.*:DeprecationWarning:langchain",
+]
+markers = [
+    "serial: tests to avoid using with pytest-xdist",
+]
