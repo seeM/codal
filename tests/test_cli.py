@@ -1,15 +1,12 @@
-from typing import Iterable, Set
+from typing import Iterable
 
 import pytest
 import sqlite_utils
 from click.testing import CliRunner
 from git.repo import Repo as GitRepo
-from sqlalchemy import inspect
-from sqlalchemy.orm import Session
 
 from codal.ai import load_index
 from codal.cli import cli
-from codal.database import SessionLocal, engine, metadata, migrate
 from codal.settings import settings
 
 
