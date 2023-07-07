@@ -1,0 +1,9 @@
+[tool.black]
+exclude = "build"
+
+[tool.isort]
+profile = "black"
+src_paths = ["codal", "experiments", "tests"]
+
+[tool.pyright]
+exclude = ["build"]
