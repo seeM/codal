@@ -43,6 +43,7 @@ setup(
         "fastapi[all]",
         "GitPython",
         "hnswlib",
+        "importlib_resources",
         "langchain",
         "numpy",
         "openai",

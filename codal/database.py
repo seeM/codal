@@ -1,10 +1,8 @@
-from importlib.resources import files
-
-from sqlalchemy import MetaData, create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
-
 from alembic.command import upgrade
 from alembic.config import Config
+from importlib_resources import files
+from sqlalchemy import MetaData, create_engine
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from .settings import settings
 
