@@ -3,6 +3,7 @@ exclude = "build"
 
 [tool.isort]
 profile = "black"
+known_third_party = ["alembic"]
 src_paths = ["codal", "experiments", "tests"]
 
 [tool.pyright]
