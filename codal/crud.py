@@ -11,8 +11,6 @@ from .models import Chunk, Document, DocumentVersion
 from .schemas import (
     ChunkCreate,
     ChunkUpdate,
-    DocumentCreate,
-    DocumentUpdate,
     DocumentVersionCreate,
     DocumentVersionUpdate,
 )
@@ -52,20 +50,6 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         db.commit()
         db.refresh(db_obj)
         return db_obj
-
-
-class CRUDDocument(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
-    def get(self, db: Session, *, repo_id: int, path: Path) -> Optional[Document]:
-        document = db.execute(
-            select(Document).where(Document.repo_id == repo_id, Document.path == path)
-        ).scalar_one_or_none()
-        return document
-
-    def get_or_create(self, db: Session, obj_in: DocumentCreate) -> Document:
-        document = self.get(db, repo_id=obj_in.repo_id, path=obj_in.path)
-        if document:
-            return document
-        return self.create(db, obj_in=obj_in)
 
 
 class CRUDDocumentVersion(
@@ -129,6 +113,5 @@ class CRUDChunk(CRUDBase[Chunk, ChunkCreate, ChunkUpdate]):
         return chunks
 
 
-document = CRUDDocument(Document)
 document_version = CRUDDocumentVersion(DocumentVersion)
 chunk = CRUDChunk(Chunk)

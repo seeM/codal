@@ -12,20 +12,6 @@ from pydantic import BaseModel
 from .models import Chunk
 
 
-class DocumentBase(BaseModel):
-    repo_id: Optional[int] = None
-    path: Optional[Path] = None
-
-
-class DocumentCreate(DocumentBase):
-    repo_id: int
-    path: Path
-
-
-class DocumentUpdate(DocumentBase):
-    pass
-
-
 class DocumentVersionBase(BaseModel):
     document_id: Optional[int] = None
     commit_id: Optional[int] = None

@@ -20,7 +20,7 @@ from .ai import get_chat_completion, get_embedding, load_index
 from .database import SessionLocal
 from .migrations import migrate
 from .models import Chunk, DocumentVersion, Repo
-from .schemas import DocumentCreate, DocumentVersionCreate, DocumentVersionUpdate
+from .schemas import DocumentVersionCreate, DocumentVersionUpdate
 from .settings import settings
 from .version import __version__
 
@@ -233,13 +233,23 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
             path = path.relative_to(git_dir)
 
             # Get or create the document and version
-            document = crud.document.get_or_create(
-                db, DocumentCreate(repo_id=repo["id"], path=path)
-            )
+            try:
+                document = list(
+                    db2["documents"].rows_where(
+                        "repo_id = ? and path = ?", [repo["id"], str(path)]
+                    )
+                )[0]
+            except IndexError:
+                document = {
+                    "repo_id": repo["id"],
+                    "path": str(path),
+                }
+                document["id"] = db2["documents"].insert(document).last_pk
+
             document_version = crud.document_version.get_or_create(
                 db,
                 DocumentVersionCreate(
-                    document_id=document.id,
+                    document_id=document["id"],
                     commit_id=commit["id"],
                     text=text,
                     num_tokens=len(encoder.encode(text)),
@@ -250,7 +260,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
             if not document_version.processed and prev_head is not None:
                 previous_document_version = crud.document_version.get(
                     db,
-                    document_id=document.id,
+                    document_id=document["id"],
                     commit_id=prev_head["id"],
                 )
                 if (
