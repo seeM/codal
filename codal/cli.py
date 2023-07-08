@@ -12,14 +12,13 @@ import uvicorn
 from git.exc import GitCommandError
 from git.repo import Repo as GitRepo
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import crud
 from .ai import get_chat_completion, get_embedding, load_index
 from .database import SessionLocal
 from .migrations import migrate
-from .models import Chunk, DocumentVersion, Repo
+from .models import Chunk, Repo
 from .settings import settings
 from .version import __version__
 
@@ -111,9 +110,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
     try:
         org_name, repo_name = repo_arg.split("/")
     except ValueError:
-        raise click.UsageError(
-            _REPO_DESCRIPTION,
-        )
+        raise click.ClickException(_REPO_DESCRIPTION)
 
     # Clone or pull the repo
     git_url = f"https://github.com/{org_name}/{repo_name}.git"
@@ -130,7 +127,7 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
             git_repo = GitRepo.clone_from(git_url, git_dir)
         except GitCommandError as exception:
             if "remote: Repository not found." in exception.stderr:
-                raise click.exceptions.ClickException(f"Repo not found: {git_url}")
+                raise click.ClickException(f"Repo not found: {git_url}")
             raise
 
         # Store the default branch as a file so that we can recover it if the db is lost
@@ -404,12 +401,13 @@ def embed(repo, db: Session, head: Optional[str]) -> None:
 
 def _get_repo_or_raise(db: Session, org_and_repo: str) -> Repo:
     org_name, repo_name = org_and_repo.split("/")
+    # TODO: Replace this...
+    # TODO: Test _ask
     repo = crud.repo.get(db, name=repo_name, org_name=org_name)
     if repo is None:
-        click.echo(
+        raise click.ClickException(
             f"Repo does not exist. Have you run `codal embed {org_and_repo}`?", err=True
         )
-        raise click.exceptions.Exit(1)
     return repo
 
 
@@ -462,10 +460,9 @@ def _ask(repo, question: str, db: Session, num_neighbors=10, debug=False) -> str
     # TODO: Don't hardcode the dimension
     index = load_index(index_path, dim=1536)
     if index is None:
-        click.echo(
-            f"Index does not exist. Have you run `codal embed {repo_arg}`?", err=True
+        raise click.ClickException(
+            f"Index does not exist. Have you run `codal embed {repo_arg}`?"
         )
-        raise click.exceptions.Exit(1)
 
     # Find the top nearest neighbours
 
@@ -507,8 +504,9 @@ def _ask(repo, question: str, db: Session, num_neighbors=10, debug=False) -> str
 
     num_tokens, cost = _estimate_cost(prompt)
     if num_tokens > 5000:
-        click.echo(f"Unexpectedly high number of tokens: {num_tokens}", err=True)
-        raise click.exceptions.Exit(1)
+        raise click.ClickException(
+            f"Unexpectedly high number of tokens: {num_tokens}", err=True
+        )
 
     # click.echo(f"Number of tokens: {num_tokens}", err=True)
     # click.echo(f"Estimated cost: ${cost}", err=True)
@@ -570,40 +568,40 @@ def serve():
     uvicorn.run("codal.api:app")
 
 
-@cli.command()
-@click.option("--fix", is_flag=True)
-@_provide_db
-def check(db: Session, fix: bool):
-    """
-    Check that the database is in a consistent state.
-    """
+# @cli.command()
+# @click.option("--fix", is_flag=True)
+# @_provide_db
+# def check(db: Session, fix: bool):
+#     """
+#     Check that the database is in a consistent state.
+#     """
 
-    db2 = sqlite_utils.Database(settings.DB_PATH)
+#     db2 = sqlite_utils.Database(settings.DB_PATH)
 
-    # TODO: Continue here
-    document_version_ids = [
-        row["document_version_id"]
-        for row in db2["document_version_chunks"].rows_where()
-    ]
-    document_versions = list(db2["document_versions"].rows_where("processed = 1"))
-    document_versions = (
-        db.execute(
-            select(DocumentVersion).where(
-                DocumentVersion.chunks == None, DocumentVersion.processed == True
-            )
-        )
-        .scalars()
-        .all()
-    )
+#     # TODO: Continue here
+#     document_version_ids = [
+#         row["document_version_id"]
+#         for row in db2["document_version_chunks"].rows_where()
+#     ]
+#     document_versions = list(db2["document_versions"].rows_where("processed = 1"))
+#     document_versions = (
+#         db.execute(
+#             select(DocumentVersion).where(
+#                 DocumentVersion.chunks == None, DocumentVersion.processed == True
+#             )
+#         )
+#         .scalars()
+#         .all()
+#     )
 
-    if document_versions:
-        click.echo(
-            f"Found {len(document_versions)} processed document versions with no chunks",
-            err=True,
-        )
-        if fix:
-            for document_version in document_versions:
-                db2
-                # crud.document_version.update(
-                #     db, document_version, DocumentVersionUpdate(processed=False)
-                # )
+#     if document_versions:
+#         click.echo(
+#             f"Found {len(document_versions)} processed document versions with no chunks",
+#             err=True,
+#         )
+#         if fix:
+#             for document_version in document_versions:
+#                 db2
+# crud.document_version.update(
+#     db, document_version, DocumentVersionUpdate(processed=False)
+# )

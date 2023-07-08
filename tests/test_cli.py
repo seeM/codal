@@ -24,7 +24,7 @@ def test_embed_invalid_repo(runner: CliRunner) -> None:
         cli, ["embed", "not-a-repo-identifier"], catch_exceptions=False  # type: ignore
     )
     assert result.stderr.splitlines()[-1].startswith("Error: REPO")
-    assert result.exit_code == 2
+    assert result.exit_code == 1
 
 
 @pytest.mark.serial
